@@ -27,6 +27,7 @@ pub(crate) struct ColorComponentInput {
     value: String,
     font_size: f32,
     visual_theme: SettingsInputTheme,
+    text_input_undo_byte_limit: usize,
 }
 
 impl EventEmitter<ColorComponentInputEvent> for ColorComponentInput {}
@@ -37,11 +38,12 @@ impl ColorComponentInput {
         value: &str,
         font_size: f32,
         visual_theme: SettingsInputTheme,
+        text_input_undo_byte_limit: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         ensure_color_component_input_bindings(cx);
-        let input = Self::build_text_input(value, &visual_theme, cx);
+        let input = Self::build_text_input(value, &visual_theme, text_input_undo_byte_limit, cx);
         let focus_handle = input.read(cx).tab_focus_handle();
         Self::subscribe_to_text_input(&input, cx);
 
@@ -52,6 +54,7 @@ impl ColorComponentInput {
             value: value.to_owned(),
             font_size,
             visual_theme,
+            text_input_undo_byte_limit,
         };
         input.install_focus_listener(window, cx, &focus_handle);
         input
@@ -90,6 +93,29 @@ impl ColorComponentInput {
         if changed {
             cx.notify();
         }
+    }
+
+    pub(crate) fn sync_text_input_undo_byte_limit(
+        &mut self,
+        text_input_undo_byte_limit: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.text_input_undo_byte_limit == text_input_undo_byte_limit {
+            return;
+        }
+
+        self.text_input_undo_byte_limit = text_input_undo_byte_limit;
+        self.input = Self::build_text_input(
+            &self.value,
+            &self.visual_theme,
+            self.text_input_undo_byte_limit,
+            cx,
+        );
+        self.focus_handle = self.input.read(cx).tab_focus_handle();
+        Self::subscribe_to_text_input(&self.input, cx);
+        self.install_focus_listener(window, cx, &self.focus_handle.clone());
+        cx.notify();
     }
 
     pub(crate) fn tab_focus_handle(&self) -> FocusHandle {
@@ -202,11 +228,16 @@ impl ColorComponentInput {
     fn build_text_input(
         value: &str,
         visual_theme: &SettingsInputTheme,
+        text_input_undo_byte_limit: usize,
         cx: &mut Context<Self>,
     ) -> Entity<TextInput> {
         cx.new(|cx| {
-            let mut input =
-                TextInput::new_with_options(value, "", TextInputOptions::single_line(), cx);
+            let mut input = TextInput::new_with_options(
+                value,
+                "",
+                TextInputOptions::single_line().with_undo_byte_limit(text_input_undo_byte_limit),
+                cx,
+            );
             input.set_enter_key(TextInputEnterKey::Propagate);
             input.set_single_line_vertical_key(TextInputSingleLineVerticalKey::Propagate);
             input.set_theme(text_input_theme(visual_theme), cx);

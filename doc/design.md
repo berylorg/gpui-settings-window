@@ -44,6 +44,8 @@ Rows carry stable field identifiers, display labels, optional secondary label-si
 
 Text fields are settings presentation fields, not domain preferences. The field kind may distinguish single-line and multiline text presentation, but the stored presentation value remains a string and host applications decide what that string means.
 
+Settings-window options may configure app-neutral text-input retention limits, including undo/redo byte budgets. These limits apply to reusable settings text fields and color-picker component inputs without defining host setting schemas, validation, persistence, or apply semantics.
+
 Events refer to stable identifiers so hosts can map user edits and row action requests back to their own settings schema.
 
 ## Host-Provided Visual Theme

@@ -2,7 +2,8 @@ use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Pixels, Window, px, rgb, rgba,
 };
 use gpui_text_input::{
-    TextInput, TextInputEnterKey, TextInputEvent, TextInputOptions, TextInputTheme,
+    TextInput, TextInputEnterKey, TextInputEvent, TextInputOptions, TextInputRetainedCounts,
+    TextInputTheme,
 };
 
 use crate::SettingsInputTheme;
@@ -36,6 +37,7 @@ pub(crate) struct SettingsFieldInput {
     error: Option<String>,
     font_size: f32,
     visual_theme: SettingsInputTheme,
+    text_input_undo_byte_limit: usize,
 }
 
 impl EventEmitter<SettingsFieldInputEvent> for SettingsFieldInput {}
@@ -49,9 +51,11 @@ impl SettingsFieldInput {
         font_size: f32,
         role: SettingsFieldInputRole,
         visual_theme: SettingsInputTheme,
+        text_input_undo_byte_limit: usize,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = Self::build_text_input(value, kind, &visual_theme, cx);
+        let input =
+            Self::build_text_input(value, kind, &visual_theme, text_input_undo_byte_limit, cx);
         let focus_handle = input.read(cx).tab_focus_handle();
         Self::subscribe_to_text_input(&input, cx);
 
@@ -65,6 +69,7 @@ impl SettingsFieldInput {
             error: error.map(String::from),
             font_size,
             visual_theme,
+            text_input_undo_byte_limit,
         }
     }
 
@@ -74,14 +79,22 @@ impl SettingsFieldInput {
         kind: SettingsFieldKind,
         error: Option<&str>,
         font_size: f32,
+        text_input_undo_byte_limit: usize,
         cx: &mut Context<Self>,
     ) {
         let mut changed = false;
 
-        if self.kind != kind {
+        if self.kind != kind || self.text_input_undo_byte_limit != text_input_undo_byte_limit {
             self.kind = kind;
+            self.text_input_undo_byte_limit = text_input_undo_byte_limit;
             self.value = value.to_owned();
-            self.input = Self::build_text_input(value, kind, &self.visual_theme, cx);
+            self.input = Self::build_text_input(
+                value,
+                kind,
+                &self.visual_theme,
+                self.text_input_undo_byte_limit,
+                cx,
+            );
             self.focus_handle = self.input.read(cx).tab_focus_handle();
             Self::subscribe_to_text_input(&self.input, cx);
             changed = true;
@@ -125,6 +138,28 @@ impl SettingsFieldInput {
         cx.notify();
     }
 
+    pub(crate) fn sync_text_input_undo_byte_limit(
+        &mut self,
+        text_input_undo_byte_limit: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if self.text_input_undo_byte_limit == text_input_undo_byte_limit {
+            return;
+        }
+
+        self.text_input_undo_byte_limit = text_input_undo_byte_limit;
+        self.input = Self::build_text_input(
+            &self.value,
+            self.kind,
+            &self.visual_theme,
+            self.text_input_undo_byte_limit,
+            cx,
+        );
+        self.focus_handle = self.input.read(cx).tab_focus_handle();
+        Self::subscribe_to_text_input(&self.input, cx);
+        cx.notify();
+    }
+
     pub(crate) fn retarget(
         &mut self,
         field_id: SettingsFieldId,
@@ -132,11 +167,19 @@ impl SettingsFieldInput {
         kind: SettingsFieldKind,
         error: Option<&str>,
         font_size: f32,
+        text_input_undo_byte_limit: usize,
         cx: &mut Context<Self>,
     ) {
         let field_changed = self.field_id != field_id;
         self.field_id = field_id;
-        self.sync(value, kind, error, font_size, cx);
+        self.sync(
+            value,
+            kind,
+            error,
+            font_size,
+            text_input_undo_byte_limit,
+            cx,
+        );
         if field_changed {
             self.set_text_without_event(value, cx);
             cx.notify();
@@ -156,6 +199,10 @@ impl SettingsFieldInput {
 
     pub(crate) fn text(&self) -> &str {
         &self.value
+    }
+
+    pub(crate) fn retained_counts_for_test(&self, cx: &gpui::App) -> TextInputRetainedCounts {
+        self.input.read(cx).retained_counts()
     }
 
     pub(crate) fn replace_all_for_test(&mut self, value: &str, cx: &mut Context<Self>) {
@@ -262,10 +309,16 @@ impl SettingsFieldInput {
         value: &str,
         kind: SettingsFieldKind,
         visual_theme: &SettingsInputTheme,
+        text_input_undo_byte_limit: usize,
         cx: &mut Context<Self>,
     ) -> Entity<TextInput> {
         cx.new(|cx| {
-            let mut input = TextInput::new_with_options(value, "", text_input_options(kind), cx);
+            let mut input = TextInput::new_with_options(
+                value,
+                "",
+                text_input_options(kind, text_input_undo_byte_limit),
+                cx,
+            );
             input.set_enter_key(text_input_enter_key(kind));
             input.set_theme(text_input_theme(visual_theme), cx);
             input
@@ -280,11 +333,12 @@ impl SettingsFieldInput {
     }
 }
 
-fn text_input_options(kind: SettingsFieldKind) -> TextInputOptions {
+fn text_input_options(kind: SettingsFieldKind, undo_byte_limit: usize) -> TextInputOptions {
     match kind {
         SettingsFieldKind::MultilineText => TextInputOptions::multiline(),
         SettingsFieldKind::Text | SettingsFieldKind::Color => TextInputOptions::single_line(),
     }
+    .with_undo_byte_limit(undo_byte_limit)
 }
 
 fn text_input_enter_key(kind: SettingsFieldKind) -> TextInputEnterKey {

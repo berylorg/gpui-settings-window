@@ -66,6 +66,7 @@ pub struct SettingsPanel {
     font_size: f32,
     visual_theme: SettingsWindowTheme,
     saved_color_swatches: Vec<RgbColor>,
+    text_input_undo_byte_limit: usize,
     latest_known_color_values: Vec<(SettingsFieldId, RgbColor)>,
     color_picker_field: Option<SettingsFieldId>,
     color_picker_input: Option<Entity<SettingsFieldInput>>,
@@ -121,6 +122,7 @@ impl SettingsPanel {
             font_size: DEFAULT_FONT_SIZE,
             visual_theme: options.visual_theme().clone(),
             saved_color_swatches: options.saved_color_swatches().to_vec(),
+            text_input_undo_byte_limit: options.text_input_undo_byte_limit(),
             latest_known_color_values: Vec::new(),
             color_picker_field: None,
             color_picker_input: None,
@@ -172,13 +174,33 @@ impl SettingsPanel {
     }
 
     /// Synchronizes panel-level visual options.
-    pub fn sync_options(&mut self, options: &SettingsWindowOptions, cx: &mut Context<Self>) {
+    pub fn sync_options(
+        &mut self,
+        options: &SettingsWindowOptions,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let next_theme = options.visual_theme().clone();
         let next_swatches = options.saved_color_swatches().to_vec();
-        if self.visual_theme != next_theme || self.saved_color_swatches != next_swatches {
+        let next_text_input_undo_byte_limit = options.text_input_undo_byte_limit();
+
+        let theme_changed = self.visual_theme != next_theme;
+        let swatches_changed = self.saved_color_swatches != next_swatches;
+        let text_input_undo_byte_limit_changed =
+            self.text_input_undo_byte_limit != next_text_input_undo_byte_limit;
+
+        if theme_changed {
             self.visual_theme = next_theme;
-            self.saved_color_swatches = next_swatches;
             self.sync_input_visual_themes(cx);
+        }
+        if swatches_changed {
+            self.saved_color_swatches = next_swatches;
+        }
+        if text_input_undo_byte_limit_changed {
+            self.text_input_undo_byte_limit = next_text_input_undo_byte_limit;
+            self.sync_input_retention_options(window, cx);
+        }
+        if theme_changed || swatches_changed || text_input_undo_byte_limit_changed {
             cx.notify();
         }
     }
@@ -235,6 +257,15 @@ impl SettingsPanel {
     pub fn field_text_for_test(&self, field_id: &SettingsFieldId, cx: &App) -> Option<String> {
         self.input_for_field(field_id)
             .map(|input| input.read(cx).text().to_owned())
+    }
+
+    pub fn field_retained_counts_for_test(
+        &self,
+        field_id: &SettingsFieldId,
+        cx: &App,
+    ) -> Option<gpui_text_input::TextInputRetainedCounts> {
+        self.input_for_field(field_id)
+            .map(|input| input.read(cx).retained_counts_for_test(cx))
     }
 
     /// Selects a section directly and emits the same event as the navigation row.
@@ -299,7 +330,14 @@ impl SettingsPanel {
             {
                 let slot = self.fields.swap_remove(index);
                 let _ = slot.input.update(cx, |input, cx| {
-                    input.sync(row.value(), row.kind(), row.error(), self.font_size, cx);
+                    input.sync(
+                        row.value(),
+                        row.kind(),
+                        row.error(),
+                        self.font_size,
+                        self.text_input_undo_byte_limit,
+                        cx,
+                    );
                     input.sync_visual_theme(&self.visual_theme.input, cx);
                 });
                 next.push(slot);
@@ -325,6 +363,7 @@ impl SettingsPanel {
                 self.font_size,
                 SettingsFieldInputRole::Row,
                 self.visual_theme.input.clone(),
+                self.text_input_undo_byte_limit,
                 cx,
             )
         });
@@ -350,6 +389,24 @@ impl SettingsPanel {
         for slot in &self.color_picker_channel_inputs {
             let _ = slot.input.update(cx, |input, cx| {
                 input.sync_visual_theme(&self.visual_theme.input, cx);
+            });
+        }
+    }
+
+    fn sync_input_retention_options(&self, window: &mut Window, cx: &mut Context<Self>) {
+        for slot in &self.fields {
+            let _ = slot.input.update(cx, |input, cx| {
+                input.sync_text_input_undo_byte_limit(self.text_input_undo_byte_limit, cx);
+            });
+        }
+        if let Some(input) = self.color_picker_input.clone() {
+            let _ = input.update(cx, |input, cx| {
+                input.sync_text_input_undo_byte_limit(self.text_input_undo_byte_limit, cx);
+            });
+        }
+        for slot in &self.color_picker_channel_inputs {
+            let _ = slot.input.update(cx, |input, cx| {
+                input.sync_text_input_undo_byte_limit(self.text_input_undo_byte_limit, window, cx);
             });
         }
     }

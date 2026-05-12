@@ -1,3 +1,5 @@
+use gpui_text_input::TextInputOptions;
+
 use crate::{RgbColor, SettingsWindowTheme};
 
 /// Options used when creating a settings window.
@@ -10,6 +12,7 @@ pub struct SettingsWindowOptions {
     min_height: f32,
     saved_color_swatches: Vec<RgbColor>,
     visual_theme: SettingsWindowTheme,
+    text_input_undo_byte_limit: usize,
 }
 
 impl SettingsWindowOptions {
@@ -23,6 +26,7 @@ impl SettingsWindowOptions {
             min_height: 520.0,
             saved_color_swatches: Vec::new(),
             visual_theme: SettingsWindowTheme::default(),
+            text_input_undo_byte_limit: TextInputOptions::DEFAULT_UNDO_BYTE_LIMIT,
         }
     }
 
@@ -52,6 +56,12 @@ impl SettingsWindowOptions {
         self
     }
 
+    /// Returns a copy with a custom per-stack text-input undo byte limit.
+    pub fn with_text_input_undo_byte_limit(mut self, byte_limit: usize) -> Self {
+        self.text_input_undo_byte_limit = byte_limit;
+        self
+    }
+
     /// Returns the window title.
     pub fn title(&self) -> &str {
         &self.title
@@ -75,6 +85,11 @@ impl SettingsWindowOptions {
     /// Returns the visual theme used by settings-window presentation.
     pub fn visual_theme(&self) -> &SettingsWindowTheme {
         &self.visual_theme
+    }
+
+    /// Returns the per-stack text-input undo byte limit.
+    pub fn text_input_undo_byte_limit(&self) -> usize {
+        self.text_input_undo_byte_limit
     }
 }
 

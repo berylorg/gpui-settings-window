@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui_settings_window::{
-    SettingsFieldId, SettingsFieldKind, SettingsPanel, SettingsRow, SettingsRowAction,
+    RgbColor, SettingsFieldId, SettingsFieldKind, SettingsPanel, SettingsRow, SettingsRowAction,
     SettingsRowActionId, SettingsSection, SettingsSectionId, SettingsWindowEvent,
-    SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions,
+    SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions, SettingsWindowTheme,
     open_settings_window,
 };
 
@@ -300,4 +300,94 @@ fn multiline_field_enter_edits_text_instead_of_accepting(cx: &mut gpui::TestAppC
             .borrow()
             .contains(&SettingsWindowEvent::AcceptRequested)
     );
+}
+
+#[gpui::test]
+fn settings_text_input_uses_configured_undo_byte_limit(cx: &mut gpui::TestAppContext) {
+    let (panel, cx) = cx.add_window_view(|window, cx| {
+        let mut panel = SettingsPanel::new_with_options(
+            settings_model_with_multiline(""),
+            SettingsWindowOptions::default().with_text_input_undo_byte_limit(3),
+            window,
+            cx,
+        );
+        panel.focus_field(&SettingsFieldId::from("instructions"), window, cx);
+        panel
+    });
+
+    cx.simulate_input("aa");
+    cx.simulate_input("bb");
+    cx.simulate_input("cc");
+
+    panel.read_with(cx, |panel, cx| {
+        let counts = panel
+            .field_retained_counts_for_test(&SettingsFieldId::from("instructions"), cx)
+            .expect("field should exist");
+        assert!(counts.undo_text_bytes <= 3);
+    });
+}
+
+#[gpui::test]
+fn sync_options_preserves_unsynchronized_field_text(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model("appearance", "Inter"),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            view.focus_field(&SettingsFieldId::from("font_family"), window, cx);
+            view.replace_field_text_for_test(
+                &SettingsFieldId::from("font_family"),
+                "Draft Mono",
+                cx,
+            );
+        })
+        .expect("settings window should be writable");
+
+    let mut theme = SettingsWindowTheme::default();
+    theme.input.border = RgbColor::new(1, 2, 3);
+    handle
+        .update_options(
+            cx,
+            SettingsWindowOptions::default()
+                .with_visual_theme(theme)
+                .with_saved_color_swatches([RgbColor::new(9, 8, 7)]),
+        )
+        .expect("options update should succeed");
+
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(
+                view.field_text_for_test(&SettingsFieldId::from("font_family"), cx),
+                Some(String::from("Draft Mono")),
+            );
+        })
+        .expect("settings window should be readable");
+
+    handle
+        .update_options(
+            cx,
+            SettingsWindowOptions::default().with_text_input_undo_byte_limit(3),
+        )
+        .expect("options update should succeed");
+
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(
+                view.field_text_for_test(&SettingsFieldId::from("font_family"), cx),
+                Some(String::from("Draft Mono")),
+            );
+        })
+        .expect("settings window should be readable");
 }

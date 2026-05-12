@@ -91,6 +91,7 @@ impl SettingsPanel {
                     crate::SettingsFieldKind::Color,
                     error.as_deref(),
                     self.font_size,
+                    self.text_input_undo_byte_limit,
                     cx,
                 );
             });
@@ -104,6 +105,7 @@ impl SettingsPanel {
                     self.font_size,
                     SettingsFieldInputRole::Picker,
                     self.visual_theme.input.clone(),
+                    self.text_input_undo_byte_limit,
                     cx,
                 )
             });
@@ -143,6 +145,7 @@ impl SettingsPanel {
                         value.as_str(),
                         self.font_size,
                         self.visual_theme.input.clone(),
+                        self.text_input_undo_byte_limit,
                         window,
                         cx,
                     )
@@ -293,6 +296,7 @@ impl SettingsPanel {
                     crate::SettingsFieldKind::Color,
                     error.as_deref(),
                     self.font_size,
+                    self.text_input_undo_byte_limit,
                     cx,
                 );
             });

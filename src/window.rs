@@ -242,9 +242,9 @@ impl SettingsWindowView {
         window.set_window_title(options.title());
         self.options = options;
         let panel_options = self.options.clone();
-        let _ = self
-            .settings_panel
-            .update(cx, |panel, cx| panel.sync_options(&panel_options, cx));
+        let _ = self.settings_panel.update(cx, |panel, cx| {
+            panel.sync_options(&panel_options, window, cx)
+        });
         cx.notify();
     }
 
