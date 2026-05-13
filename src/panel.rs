@@ -237,6 +237,18 @@ impl SettingsPanel {
         )
     }
 
+    /// Returns whether any transient settings popup is open.
+    pub fn has_transient_popups(&self) -> bool {
+        self.color_picker_field.is_some()
+    }
+
+    /// Closes transient settings popups without applying or canceling settings.
+    pub fn close_transient_popups(&mut self, cx: &mut Context<Self>) -> bool {
+        let had_popup = self.has_transient_popups();
+        self.close_color_picker(cx);
+        had_popup
+    }
+
     /// Replaces a field's text directly and emits the same event as user input.
     pub fn replace_field_text_for_test(
         &mut self,

@@ -63,7 +63,7 @@ impl SettingsWindowHandle {
             .map(|_| ())
     }
 
-    /// Hides the OS window without removing it.
+    /// Hides the OS window without removing it and closes transient popups.
     pub fn hide<C>(&self, cx: &mut C) -> Result<()>
     where
         C: gpui::AppContext,
@@ -117,6 +117,24 @@ impl SettingsWindowHandle {
         C: gpui::AppContext,
     {
         self.handle.read_with(cx, |view, _| view.is_visible())
+    }
+
+    /// Returns whether transient settings-window popups are open.
+    pub fn has_transient_popups<C>(&self, cx: &C) -> Result<bool>
+    where
+        C: gpui::AppContext,
+    {
+        self.handle
+            .read_with(cx, |view, cx| view.has_transient_popups(cx))
+    }
+
+    /// Closes transient settings-window popups without hiding the settings window.
+    pub fn close_transient_popups<C>(&self, cx: &mut C) -> Result<bool>
+    where
+        C: gpui::AppContext,
+    {
+        self.handle
+            .update(cx, |view, _window, cx| view.close_transient_popups(cx))
     }
 }
 
@@ -208,6 +226,22 @@ impl SettingsWindowView {
         self.visible
     }
 
+    /// Returns whether transient popups owned by the settings-window content are open.
+    pub fn has_transient_popups(&self, cx: &App) -> bool {
+        self.settings_panel.read(cx).has_transient_popups()
+    }
+
+    /// Closes transient popups owned by the settings-window content.
+    pub fn close_transient_popups(&mut self, cx: &mut Context<Self>) -> bool {
+        let closed = self
+            .settings_panel
+            .update(cx, |panel, cx| panel.close_transient_popups(cx));
+        if closed {
+            cx.notify();
+        }
+        closed
+    }
+
     /// Returns the current presentation model.
     pub fn model(&self) -> &SettingsWindowModel {
         &self.model
@@ -266,6 +300,7 @@ impl SettingsWindowView {
 
     /// Hides the OS window but keeps the GPUI window and panel entities alive.
     pub fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_transient_popups(cx);
         self.visible = false;
         hide_native_settings_window(window);
         cx.notify();

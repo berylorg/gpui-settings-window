@@ -258,3 +258,134 @@ fn applies_palette_neutral_and_lightness_values(cx: &mut gpui::TestAppContext) {
         })
         .expect("settings window should update");
 }
+
+#[gpui::test]
+fn host_can_close_color_picker_as_transient_popup(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            color_settings_model("#6699cc"),
+            color_window_options(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    let view = handle.entity(cx).expect("root entity should exist");
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let captured_events = events.clone();
+
+    cx.update(|cx| {
+        cx.subscribe(&view, move |_, event: &SettingsWindowEvent, _| {
+            captured_events.borrow_mut().push(event.clone());
+        })
+        .detach();
+    });
+
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            let field_id = SettingsFieldId::from("accent_color");
+            view.open_color_picker_for_test(field_id.clone(), window, cx);
+            assert_eq!(
+                view.active_color_picker_field_for_test(cx),
+                Some(field_id.clone()),
+            );
+        })
+        .expect("settings window should update");
+    assert!(
+        handle
+            .has_transient_popups(cx)
+            .expect("transient popup state should be readable")
+    );
+
+    assert!(
+        handle
+            .close_transient_popups(cx)
+            .expect("transient popup close should succeed")
+    );
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.active_color_picker_field_for_test(cx), None);
+        })
+        .expect("settings window should be readable");
+    assert!(
+        !handle
+            .has_transient_popups(cx)
+            .expect("transient popup state should be readable")
+    );
+    assert!(
+        !handle
+            .close_transient_popups(cx)
+            .expect("transient popup close should be idempotent")
+    );
+    assert!(events.borrow().is_empty());
+}
+
+#[gpui::test]
+fn hiding_window_closes_color_picker_transient_popup(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            color_settings_model("#6699cc"),
+            color_window_options(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            let field_id = SettingsFieldId::from("accent_color");
+            view.open_color_picker_for_test(field_id.clone(), window, cx);
+            assert_eq!(
+                view.active_color_picker_field_for_test(cx),
+                Some(field_id.clone()),
+            );
+        })
+        .expect("settings window should update");
+    assert!(
+        handle
+            .has_transient_popups(cx)
+            .expect("transient popup state should be readable")
+    );
+
+    handle.hide(cx).expect("settings window should hide");
+
+    assert!(
+        !handle
+            .is_visible(cx)
+            .expect("settings window visibility should be readable")
+    );
+    assert!(
+        !handle
+            .has_transient_popups(cx)
+            .expect("transient popup state should be readable")
+    );
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.active_color_picker_field_for_test(cx), None);
+        })
+        .expect("settings window should be readable");
+
+    handle
+        .show(cx, color_settings_model("#6699cc"), false)
+        .expect("settings window should show again");
+    assert!(
+        !handle
+            .has_transient_popups(cx)
+            .expect("transient popup state should be readable")
+    );
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.active_color_picker_field_for_test(cx), None);
+        })
+        .expect("settings window should be readable");
+}

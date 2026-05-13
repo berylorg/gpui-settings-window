@@ -6,6 +6,12 @@
 //! preheated OS window that a host application can show and hide.
 //!
 //! Host applications own validation, persistence, and apply/cancel semantics.
+//! Hosts may observe and close transient in-window popups through
+//! `SettingsWindowHandle::has_transient_popups` and
+//! `SettingsWindowHandle::close_transient_popups`. Closing transient popups does
+//! not hide the settings window, apply settings, cancel settings, or emit
+//! host-domain setting events. Hiding the settings window also clears those
+//! transient popups so a preheated window cannot reopen with stale popup state.
 //!
 //! # Example
 //!

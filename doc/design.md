@@ -32,6 +32,10 @@ The crate owns generic settings-window UI mechanics: creating and keeping a dedi
 
 The left navigation and selected-section content regions own independent vertical scrolling when their section or row lists exceed the available settings-window height; the settings window itself is not an outer scrolling surface.
 
+The crate exposes app-neutral host APIs for observing and closing transient settings-window popups, such as the in-window color picker, without hiding the settings window, applying settings, canceling settings, or emitting host-domain setting events.
+
+Hiding the settings window closes transient settings-window popups first, so a preheated reusable window cannot retain hidden popup state across later show operations.
+
 Host applications own settings values, domain validation, persistence, apply/cancel semantics, and any conversion between their domain settings and this crate's presentation model.
 
 Reusable editor behavior belongs outside this crate. This crate consumes `gpui-text-input` for app-neutral text-input mechanics and maps its text-change callbacks into settings-window events, but it keeps settings-specific commands such as accept, apply, cancel, row actions, and color-picker opening at the settings-window boundary.
