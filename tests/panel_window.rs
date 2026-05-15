@@ -81,6 +81,83 @@ fn hidden_window_can_be_shown_hidden_and_reused(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+fn scrollbar_activity_is_scoped_to_settings_scroll_region(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model("appearance", "Inter"),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+
+            view.record_navigation_scrollbar_activity_for_test(window, cx);
+            let (navigation_active, content_active) = view.scrollbar_active_states_for_test(cx);
+            assert!(navigation_active);
+            assert!(!content_active);
+
+            view.reset_scrollbar_visibility_for_test(cx);
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+
+            view.record_content_scrollbar_activity_for_test(window, cx);
+            let (navigation_active, content_active) = view.scrollbar_active_states_for_test(cx);
+            assert!(!navigation_active);
+            assert!(content_active);
+        })
+        .expect("settings window should update");
+}
+
+#[gpui::test]
+fn preheated_window_show_and_hide_reset_scrollbar_visibility(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model("appearance", "Inter"),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            view.record_navigation_scrollbar_activity_for_test(window, cx);
+            view.record_content_scrollbar_activity_for_test(window, cx);
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (true, true));
+        })
+        .expect("settings window should update");
+
+    handle.hide(cx).expect("hide should succeed");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+        })
+        .expect("settings window should be readable");
+
+    handle
+        .show(cx, settings_model("appearance", "Inter"), false)
+        .expect("show should succeed");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+        })
+        .expect("settings window should be readable");
+}
+
+#[gpui::test]
 fn sync_model_updates_selected_section_and_field_text(cx: &mut gpui::TestAppContext) {
     let handle = cx.update(|cx| {
         open_settings_window(

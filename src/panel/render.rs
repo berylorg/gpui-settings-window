@@ -1,5 +1,10 @@
 use super::*;
-use gpui::{AnchoredPositionMode, Corner, anchored, deferred};
+use gpui::{
+    AnchoredPositionMode, AnyElement, Corner, StatefulInteractiveElement, anchored, deferred,
+};
+use gpui_scrollbar::{
+    Axis, ScrollbarStyle, ScrollbarVisibilityPolicy, render_scroll_handle_scrollbar,
+};
 
 impl Render for SettingsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -56,17 +61,32 @@ impl SettingsPanel {
             .h_full()
             .min_h(px(0.0))
             .flex_none()
-            .overflow_y_scroll()
-            .overflow_x_hidden()
-            .track_scroll(&self.navigation_scroll_handle)
-            .child(div().w_full().flex().flex_col().gap_1().children(
-                self.model.sections().iter().map(|section| {
-                    self.render_section_button(
-                        section.section_id().clone(),
-                        section.label().to_owned(),
-                        cx,
-                    )
-                }),
+            .relative()
+            .overflow_hidden()
+            .on_mouse_move(cx.listener(Self::note_navigation_scrollbar_motion))
+            .on_scroll_wheel(cx.listener(Self::note_navigation_scrollbar_scroll))
+            .child(
+                div()
+                    .id("settings-sections-scroll")
+                    .overflow_y_scroll()
+                    .overflow_x_hidden()
+                    .w_full()
+                    .h_full()
+                    .track_scroll(&self.navigation_scroll_handle)
+                    .child(div().w_full().flex().flex_col().gap_1().children(
+                        self.model.sections().iter().map(|section| {
+                            self.render_section_button(
+                                section.section_id().clone(),
+                                section.label().to_owned(),
+                                cx,
+                            )
+                        }),
+                    )),
+            )
+            .children(self.render_vertical_scrollbar(
+                "settings-sections-scrollbar",
+                &self.navigation_scroll_handle,
+                self.navigation_scrollbar_visibility_policy(cx.entity()),
             ))
     }
 
@@ -142,18 +162,47 @@ impl SettingsPanel {
                     .id("settings-scroll")
                     .flex_1()
                     .min_h(px(0.0))
-                    .overflow_y_scroll()
-                    .overflow_x_hidden()
-                    .track_scroll(&self.scroll_handle)
+                    .relative()
+                    .overflow_hidden()
+                    .on_mouse_move(cx.listener(Self::note_content_scrollbar_motion))
+                    .on_scroll_wheel(cx.listener(Self::note_content_scrollbar_scroll))
                     .child(
-                        div().w_full().flex().flex_col().gap_2().children(
-                            self.model
-                                .selected_rows()
-                                .iter()
-                                .map(|row| self.render_row(row, cx)),
-                        ),
-                    ),
+                        div()
+                            .id("settings-scroll-surface")
+                            .overflow_y_scroll()
+                            .overflow_x_hidden()
+                            .w_full()
+                            .h_full()
+                            .track_scroll(&self.scroll_handle)
+                            .child(
+                                div().w_full().flex().flex_col().gap_2().children(
+                                    self.model
+                                        .selected_rows()
+                                        .iter()
+                                        .map(|row| self.render_row(row, cx)),
+                                ),
+                            ),
+                    )
+                    .children(self.render_vertical_scrollbar(
+                        "settings-selected-section-scrollbar",
+                        &self.scroll_handle,
+                        self.content_scrollbar_visibility_policy(cx.entity()),
+                    )),
             )
+    }
+
+    fn render_vertical_scrollbar(
+        &self,
+        id: &'static str,
+        scroll_handle: &ScrollHandle,
+        visibility: ScrollbarVisibilityPolicy,
+    ) -> Option<AnyElement> {
+        let style = ScrollbarStyle {
+            thumb_color: self.visual_theme.panel.muted_foreground.packed_rgb(),
+            ..ScrollbarStyle::default()
+        };
+
+        render_scroll_handle_scrollbar(id, scroll_handle, Axis::Vertical, style, visibility)
     }
 
     fn render_row(&self, row: &SettingsRow, cx: &mut Context<Self>) -> impl IntoElement + use<> {

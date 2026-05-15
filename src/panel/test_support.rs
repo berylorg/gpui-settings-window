@@ -10,6 +10,35 @@ impl SettingsPanel {
         self.visual_theme.clone()
     }
 
+    pub fn scrollbar_active_states_for_test(&self) -> (bool, bool) {
+        (
+            self.navigation_scrollbar_visibility.opacity() > 0.0
+                || self.navigation_scrollbar_visibility.is_animating(),
+            self.content_scrollbar_visibility.opacity() > 0.0
+                || self.content_scrollbar_visibility.is_animating(),
+        )
+    }
+
+    pub fn record_navigation_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_navigation_scrollbar_activity(window, cx);
+    }
+
+    pub fn record_content_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_content_scrollbar_activity(window, cx);
+    }
+
+    pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
+        self.reset_scrollbar_visibility(cx);
+    }
+
     pub fn active_color_picker_field_for_test(&self) -> Option<SettingsFieldId> {
         self.color_picker_field.clone()
     }

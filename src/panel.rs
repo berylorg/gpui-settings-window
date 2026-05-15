@@ -7,6 +7,7 @@ use gpui::{
     ParentElement, Pixels, Render, ScrollHandle, SharedString, Window, actions, div, point,
     prelude::*, px, rgb,
 };
+use gpui_scrollbar::ScrollbarVisibilityState;
 
 use crate::color_picker::{
     ColorComponentInput, ColorPickerChannelField, ensure_color_component_input_bindings,
@@ -26,6 +27,7 @@ mod color_pointer;
 mod color_render;
 mod picker;
 mod render;
+mod scrollbar;
 mod test_support;
 
 const PANEL_KEY_CONTEXT: &str = "GpuiSettingsWindowPanel";
@@ -63,6 +65,8 @@ pub struct SettingsPanel {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     navigation_scroll_handle: ScrollHandle,
+    content_scrollbar_visibility: ScrollbarVisibilityState,
+    navigation_scrollbar_visibility: ScrollbarVisibilityState,
     font_size: f32,
     visual_theme: SettingsWindowTheme,
     saved_color_swatches: Vec<RgbColor>,
@@ -119,6 +123,8 @@ impl SettingsPanel {
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             navigation_scroll_handle: ScrollHandle::new(),
+            content_scrollbar_visibility: ScrollbarVisibilityState::default(),
+            navigation_scrollbar_visibility: ScrollbarVisibilityState::default(),
             font_size: DEFAULT_FONT_SIZE,
             visual_theme: options.visual_theme().clone(),
             saved_color_swatches: options.saved_color_swatches().to_vec(),
@@ -157,6 +163,7 @@ impl SettingsPanel {
         if previous_section != *self.model.selected_section_id() {
             let current = self.scroll_handle.offset();
             self.scroll_handle.set_offset(point(current.x, px(0.0)));
+            self.content_scrollbar_visibility = ScrollbarVisibilityState::default();
             self.focus_selected_section_field(window, cx);
         }
 
@@ -227,6 +234,12 @@ impl SettingsPanel {
         };
         input.update(cx, |input, cx| input.focus(window, cx));
         true
+    }
+
+    pub(crate) fn reset_scrollbar_visibility(&mut self, cx: &mut Context<Self>) {
+        self.content_scrollbar_visibility = ScrollbarVisibilityState::default();
+        self.navigation_scrollbar_visibility = ScrollbarVisibilityState::default();
+        cx.notify();
     }
 
     /// Returns the current vertical scroll metrics.
@@ -542,6 +555,7 @@ impl SettingsPanel {
         }
         let current = self.scroll_handle.offset();
         self.scroll_handle.set_offset(point(current.x, px(0.0)));
+        self.content_scrollbar_visibility = ScrollbarVisibilityState::default();
         window.focus(&self.focus_handle);
         self.focus_selected_section_field(window, cx);
         cx.emit(SettingsWindowEvent::SectionSelected { section_id });

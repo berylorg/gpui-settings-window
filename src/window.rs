@@ -291,6 +291,9 @@ impl SettingsWindowView {
         cx: &mut Context<Self>,
     ) {
         self.sync_model(model, window, cx);
+        let _ = self
+            .settings_panel
+            .update(cx, |panel, cx| panel.reset_scrollbar_visibility(cx));
         self.visible = true;
         show_native_settings_window(window);
         if focus_requested {
@@ -301,6 +304,9 @@ impl SettingsWindowView {
     /// Hides the OS window but keeps the GPUI window and panel entities alive.
     pub fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_transient_popups(cx);
+        let _ = self
+            .settings_panel
+            .update(cx, |panel, cx| panel.reset_scrollbar_visibility(cx));
         self.visible = false;
         hide_native_settings_window(window);
         cx.notify();

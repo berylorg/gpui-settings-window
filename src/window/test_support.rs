@@ -6,6 +6,38 @@ impl SettingsWindowView {
         self.settings_panel.read(cx).visual_theme_for_test()
     }
 
+    pub fn scrollbar_active_states_for_test(&self, cx: &App) -> (bool, bool) {
+        self.settings_panel
+            .read(cx)
+            .scrollbar_active_states_for_test()
+    }
+
+    pub fn record_navigation_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.record_navigation_scrollbar_activity_for_test(window, cx);
+        });
+    }
+
+    pub fn record_content_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.record_content_scrollbar_activity_for_test(window, cx);
+        });
+    }
+
+    pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.reset_scrollbar_visibility_for_test(cx)
+        });
+    }
+
     /// Replaces a field's text directly and emits the same event as user input.
     pub fn replace_field_text_for_test(
         &mut self,
