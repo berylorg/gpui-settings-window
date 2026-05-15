@@ -2077,7 +2077,7 @@ dependencies = [
 [[package]]
 name = "gpui-text-input"
 version = "0.1.0"
-source = "git+https://github.com/berylorg/gpui-text-input.git?rev=999929f8c11ca2202ea93cf5ef720c42343edaaf#999929f8c11ca2202ea93cf5ef720c42343edaaf"
+source = "git+https://github.com/berylorg/gpui-text-input.git?rev=b5ce72adaef658de9a7cd9264c7b3dc3d98c939b#b5ce72adaef658de9a7cd9264c7b3dc3d98c939b"
 dependencies = [
  "gpui",
  "unicode-segmentation",
