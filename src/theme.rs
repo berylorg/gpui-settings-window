@@ -34,9 +34,10 @@ pub struct SettingsInputTheme {
     pub selection_background: RgbColor,
 }
 
-/// Button colors for all interactive states of one button variant.
+/// Button typography and colors for all interactive states of one button variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsButtonTheme {
+    pub font_weight: u16,
     pub normal: SettingsButtonStateTheme,
     pub hover: SettingsButtonStateTheme,
     pub active: SettingsButtonStateTheme,
@@ -97,6 +98,7 @@ impl SettingsSurfaceTheme {
 impl SettingsButtonTheme {
     fn primary() -> Self {
         Self {
+            font_weight: 500,
             normal: SettingsButtonStateTheme::new(
                 color(0x2D6A4F),
                 color(0x49966F),
@@ -118,6 +120,7 @@ impl SettingsButtonTheme {
 
     fn secondary() -> Self {
         Self {
+            font_weight: 500,
             normal: SettingsButtonStateTheme::new(
                 color(0x252A2F),
                 color(0x3B434B),

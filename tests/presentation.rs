@@ -175,9 +175,11 @@ fn rejects_duplicate_row_action_ids_per_row() {
 fn window_options_carry_custom_visual_theme() {
     let mut theme = SettingsWindowTheme::default();
     theme.window_background = RgbColor::new(1, 2, 3);
+    theme.primary_button.font_weight = 650;
     theme.primary_button.normal.background = RgbColor::new(4, 5, 6);
 
     let options = SettingsWindowOptions::default().with_visual_theme(theme.clone());
 
     assert_eq!(options.visual_theme(), &theme);
+    assert_eq!(options.visual_theme().primary_button.font_weight, 650);
 }

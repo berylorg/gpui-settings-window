@@ -103,6 +103,7 @@ impl SettingsPanel {
         } else {
             button_theme.normal.clone()
         };
+        let font_weight = FontWeight(button_theme.font_weight as f32);
         let hover = button_theme.hover;
         let pressed = button_theme.active;
 
@@ -131,6 +132,7 @@ impl SettingsPanel {
                     .bg(theme_color(pressed.background))
                     .text_color(theme_color(pressed.foreground))
             })
+            .font_weight(font_weight)
             .text_color(theme_color(state.foreground))
             .cursor_pointer()
             .child(label)
@@ -358,6 +360,7 @@ impl SettingsPanel {
         let normal = button_theme.normal;
         let hover = button_theme.hover;
         let pressed = button_theme.active;
+        let font_weight = FontWeight(button_theme.font_weight as f32);
 
         div()
             .id(id)
@@ -380,6 +383,7 @@ impl SettingsPanel {
                     .bg(theme_color(pressed.background))
                     .text_color(theme_color(pressed.foreground))
             })
+            .font_weight(font_weight)
             .text_color(theme_color(normal.foreground))
             .cursor_pointer()
             .child(label)

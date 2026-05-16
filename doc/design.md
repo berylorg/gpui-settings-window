@@ -58,7 +58,7 @@ Events refer to stable identifiers so hosts can map user edits and row action re
 
 The crate exposes app-neutral visual theme options for its settings-window presentation. The theme describes generic settings-window surfaces, rows, inputs, color-picker popup surfaces, navigation buttons, and action buttons without encoding host application setting names or storage policy.
 
-Button presentation supports primary and secondary variants. Each variant has normal, hover, active, and disabled states, and each state carries background, border, and foreground colors.
+Button presentation supports primary and secondary variants. Each variant carries label font weight plus normal, hover, active, and disabled color states. Each color state carries background, border, and foreground colors.
 
 If a host does not provide a visual theme, the crate uses its own default app-neutral colors.
 
