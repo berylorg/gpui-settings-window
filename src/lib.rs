@@ -1,9 +1,10 @@
 //! Reusable GPUI settings-window primitives.
 //!
 //! This crate owns the generic presentation and interaction boundary for a
-//! settings window: ordered navigation sections, ordered setting rows, text
-//! field editing, color value picking, apply/accept/cancel events, and a
-//! preheated OS window that a host application can show and hide.
+//! settings window: ordered navigation sections, right-pane pages and subpages,
+//! optional page-local split lists, setting rows, navigation rows, row and page
+//! actions, text field editing, color value picking, apply/accept/cancel events,
+//! and a preheated OS window that a host application can show and hide.
 //!
 //! Host applications own validation, persistence, and apply/cancel semantics.
 //! Hosts may observe and close transient in-window popups through
@@ -17,7 +18,8 @@
 //!
 //! ```
 //! use gpui_settings_window::{
-//!     SettingsFieldKind, SettingsRow, SettingsSection, SettingsWindowModel,
+//!     SettingsBreadcrumbSegment, SettingsFieldKind, SettingsPage, SettingsPageAction,
+//!     SettingsPageActionPriority, SettingsRow, SettingsSection, SettingsWindowModel,
 //! };
 //!
 //! let appearance = SettingsSection::new("appearance", "Appearance")
@@ -32,7 +34,24 @@
 //!         "Notes",
 //!         "One note\nAnother note",
 //!         SettingsFieldKind::MultilineText,
-//!     ));
+//!     ))
+//!     .with_row(SettingsRow::navigation(
+//!         "theme_editor_link",
+//!         "Theme editor",
+//!         "theme_editor",
+//!     ))
+//!     .with_page(
+//!         SettingsPage::new("theme_editor", "Theme editor")
+//!             .with_breadcrumb_segment(SettingsBreadcrumbSegment::linked(
+//!                 "Appearance",
+//!                 "appearance",
+//!             ))
+//!             .with_back_target("appearance")
+//!             .with_action(
+//!                 SettingsPageAction::new("save", "Save")
+//!                     .with_priority(SettingsPageActionPriority::Primary),
+//!             ),
+//!     );
 //!
 //! let model = SettingsWindowModel::new(vec![appearance]).expect("valid settings model");
 //!
@@ -41,6 +60,7 @@
 
 mod color;
 mod color_picker;
+mod diagnostics;
 mod input;
 mod model;
 mod options;
@@ -49,8 +69,16 @@ mod theme;
 mod window;
 
 pub use color::RgbColor;
+pub use diagnostics::{
+    SettingsWindowDiagnostics, SettingsWindowPerformanceDiagnostics,
+    SettingsWindowRangeDiagnostics, SettingsWindowRowSurfaceDiagnostics,
+};
 pub use model::{
-    SettingsFieldId, SettingsFieldKind, SettingsRow, SettingsRowAction, SettingsRowActionId,
+    MAX_PAGE_DETAIL_ROWS, SettingsActionAvailability, SettingsBreadcrumbSegment,
+    SettingsChoiceOption, SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
+    SettingsPageActionId, SettingsPageActionPriority, SettingsPageId, SettingsPageSplit,
+    SettingsPageSplitItem, SettingsPageSplitItemId, SettingsPageSplitItemPreviewStyle, SettingsRow,
+    SettingsRowAction, SettingsRowActionId, SettingsRowDetailField, SettingsRowKind,
     SettingsSection, SettingsSectionId, SettingsWindowError, SettingsWindowEvent,
     SettingsWindowModel,
 };

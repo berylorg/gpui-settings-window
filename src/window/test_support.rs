@@ -32,9 +32,50 @@ impl SettingsWindowView {
         });
     }
 
+    pub fn record_split_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.record_split_scrollbar_activity_for_test(window, cx);
+        });
+    }
+
     pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
         self.settings_panel.update(cx, |panel, cx| {
             panel.reset_scrollbar_visibility_for_test(cx)
+        });
+    }
+
+    pub fn page_split_render_metrics_for_test(
+        &self,
+        cx: &App,
+    ) -> Option<(usize, usize, usize, f32)> {
+        self.settings_panel
+            .read(cx)
+            .page_split_render_metrics_for_test()
+    }
+
+    pub fn page_split_scroll_metrics_for_test(&self, cx: &App) -> (f32, f32) {
+        self.settings_panel
+            .read(cx)
+            .page_split_scroll_metrics_for_test()
+    }
+
+    pub fn set_page_split_scroll_offset_for_test(
+        &mut self,
+        scroll_top: f32,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_page_split_scroll_offset_for_test(scroll_top, cx);
+        });
+    }
+
+    pub fn set_content_scroll_offset_for_test(&mut self, scroll_top: f32, cx: &mut Context<Self>) {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_content_scroll_offset_for_test(scroll_top, cx);
         });
     }
 
@@ -66,6 +107,16 @@ impl SettingsWindowView {
         self.settings_panel
             .read(cx)
             .active_color_picker_field_for_test()
+    }
+
+    pub fn focused_field_for_test(
+        &self,
+        window: &Window,
+        cx: &App,
+    ) -> Option<crate::SettingsFieldId> {
+        self.settings_panel
+            .read(cx)
+            .focused_field_for_test(window, cx)
     }
 
     /// Opens the color picker for a color field.
@@ -249,6 +300,53 @@ impl SettingsWindowView {
     ) -> bool {
         self.settings_panel.update(cx, |panel, cx| {
             panel.request_row_action_for_test(field_id, action_id, cx)
+        })
+    }
+
+    /// Emits a page navigation request when the target page exists.
+    pub fn request_page_navigation_for_test(
+        &mut self,
+        page_id: crate::SettingsPageId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.request_page_navigation_for_test(page_id, cx)
+        })
+    }
+
+    /// Emits a page action request when the page carries an enabled action.
+    pub fn request_page_action_for_test(
+        &mut self,
+        page_id: crate::SettingsPageId,
+        action_id: crate::SettingsPageActionId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.request_page_action_for_test(page_id, action_id, cx)
+        })
+    }
+
+    /// Emits a split item selection request when the page carries that item.
+    pub fn request_page_split_item_for_test(
+        &mut self,
+        page_id: crate::SettingsPageId,
+        item_id: crate::SettingsPageSplitItemId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.request_page_split_item_for_test(page_id, item_id, cx)
+        })
+    }
+
+    /// Emits a field change when a choice field carries that option.
+    pub fn select_choice_for_test(
+        &mut self,
+        field_id: crate::SettingsFieldId,
+        value: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.select_choice_for_test(field_id, value, cx)
         })
     }
 

@@ -19,6 +19,11 @@ impl SettingsPanel {
         )
     }
 
+    pub fn split_scrollbar_active_for_test(&self) -> bool {
+        self.split_scrollbar_visibility.opacity() > 0.0
+            || self.split_scrollbar_visibility.is_animating()
+    }
+
     pub fn record_navigation_scrollbar_activity_for_test(
         &mut self,
         window: &mut Window,
@@ -35,12 +40,71 @@ impl SettingsPanel {
         self.note_content_scrollbar_activity(window, cx);
     }
 
+    pub fn record_split_scrollbar_activity_for_test(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_split_scrollbar_activity(window, cx);
+    }
+
     pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
         self.reset_scrollbar_visibility(cx);
     }
 
+    pub fn page_split_render_metrics_for_test(&self) -> Option<(usize, usize, usize, f32)> {
+        let split = self.model.selected_page().local_split()?;
+        let item_count = split.items().len();
+        let range = page_local_split_render_window(
+            item_count,
+            self.split_scroll_handle.offset().y,
+            self.split_scroll_handle.bounds().size.height,
+        );
+        Some((
+            item_count,
+            range.start,
+            range.end,
+            page_local_split_total_height(item_count),
+        ))
+    }
+
+    pub fn page_split_scroll_metrics_for_test(&self) -> (f32, f32) {
+        (
+            f32::from(-self.split_scroll_handle.offset().y).max(0.0),
+            f32::from(self.split_scroll_handle.max_offset().height),
+        )
+    }
+
+    pub fn set_page_split_scroll_offset_for_test(
+        &mut self,
+        scroll_top: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.split_scroll_handle.offset();
+        self.split_scroll_handle
+            .set_offset(point(current.x, px(-scroll_top.max(0.0))));
+        cx.notify();
+    }
+
+    pub fn set_content_scroll_offset_for_test(&mut self, scroll_top: f32, cx: &mut Context<Self>) {
+        let current = self.scroll_handle.offset();
+        self.scroll_handle
+            .set_offset(point(current.x, px(-scroll_top.max(0.0))));
+        cx.notify();
+    }
+
     pub fn active_color_picker_field_for_test(&self) -> Option<SettingsFieldId> {
         self.color_picker_field.clone()
+    }
+
+    pub fn focused_field_for_test(&self, window: &Window, cx: &App) -> Option<SettingsFieldId> {
+        self.fields.iter().find_map(|(field_id, input)| {
+            input
+                .read(cx)
+                .tab_focus_handle()
+                .is_focused(window)
+                .then(|| field_id.clone())
+        })
     }
 
     pub fn open_color_picker_for_test(

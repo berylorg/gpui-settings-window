@@ -10,7 +10,10 @@ use windows::Win32::Foundation::HWND;
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNA, ShowWindowAsync};
 
-use crate::{SettingsPanel, SettingsWindowEvent, SettingsWindowModel, SettingsWindowOptions};
+use crate::{
+    SettingsPanel, SettingsWindowDiagnostics, SettingsWindowEvent, SettingsWindowModel,
+    SettingsWindowOptions,
+};
 
 mod test_support;
 
@@ -99,7 +102,7 @@ impl SettingsWindowHandle {
             .map(|_| ())
     }
 
-    /// Focuses the first setting field in the selected section.
+    /// Focuses the first setting field in the selected page.
     pub fn focus_primary_control<C>(&self, cx: &mut C) -> Result<()>
     where
         C: gpui::AppContext,
@@ -135,6 +138,15 @@ impl SettingsWindowHandle {
     {
         self.handle
             .update(cx, |view, _window, cx| view.close_transient_popups(cx))
+    }
+
+    /// Returns a content-free diagnostics snapshot for host-owned profiling.
+    pub fn diagnostics_snapshot<C>(&self, cx: &C) -> Result<SettingsWindowDiagnostics>
+    where
+        C: gpui::AppContext,
+    {
+        self.handle
+            .read_with(cx, |view, cx| view.diagnostics_snapshot(cx))
     }
 }
 
@@ -231,6 +243,13 @@ impl SettingsWindowView {
         self.settings_panel.read(cx).has_transient_popups()
     }
 
+    /// Returns a content-free diagnostics snapshot for host-owned profiling.
+    pub fn diagnostics_snapshot(&self, cx: &App) -> SettingsWindowDiagnostics {
+        self.settings_panel
+            .read(cx)
+            .diagnostics_snapshot(self.visible)
+    }
+
     /// Closes transient popups owned by the settings-window content.
     pub fn close_transient_popups(&mut self, cx: &mut Context<Self>) -> bool {
         let closed = self
@@ -312,7 +331,7 @@ impl SettingsWindowView {
         cx.notify();
     }
 
-    /// Focuses the first setting field in the selected section.
+    /// Focuses the first setting field in the selected page.
     pub fn focus_primary_control(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _ = self
             .settings_panel

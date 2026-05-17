@@ -1,4 +1,4 @@
-use gpui::canvas;
+use gpui::{StatefulInteractiveElement, canvas};
 
 use super::color_paint::{
     paint_color_picker_lightness_bar, paint_color_picker_main_palette,
@@ -22,18 +22,22 @@ const COLOR_PICKER_MAIN_PALETTE_HEIGHT: f32 =
 const COLOR_PICKER_NEUTRAL_STRIP_HEIGHT: f32 = COLOR_PICKER_PALETTE_CELL_SIZE;
 const COLOR_PICKER_LIGHTNESS_BAR_HEIGHT: f32 = COLOR_PICKER_PALETTE_CELL_SIZE;
 const COLOR_PICKER_SAVED_SWATCH_SIZE: f32 = 24.0;
+const COLOR_PICKER_SAVED_SWATCH_GAP: f32 = 8.0;
+const COLOR_PICKER_SAVED_SWATCH_VISIBLE_ROWS: f32 = 3.0;
+const COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT: f32 = COLOR_PICKER_SAVED_SWATCH_VISIBLE_ROWS
+    * COLOR_PICKER_SAVED_SWATCH_SIZE
+    + (COLOR_PICKER_SAVED_SWATCH_VISIBLE_ROWS - 1.0) * COLOR_PICKER_SAVED_SWATCH_GAP;
 const COLOR_ROW_PREVIEW_SIZE: f32 = 24.0;
 
 impl SettingsPanel {
     pub(super) fn render_color_preview_swatch(
         &self,
         field_id: SettingsFieldId,
+        preview: Option<RgbColor>,
         picker_open: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let preview = self
-            .color_preview_for_field(&field_id)
-            .unwrap_or(fallback_color());
+        let preview = preview.unwrap_or(fallback_color());
         let border = if picker_open {
             self.visual_theme.input.active_border
         } else {
@@ -62,14 +66,13 @@ impl SettingsPanel {
 
     pub(super) fn render_color_picker_popup(
         &self,
-        row: &SettingsRow,
+        selected: Option<RgbColor>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let input = self
             .color_picker_input
             .clone()
             .expect("active color picker should have an input");
-        let selected = self.color_preview_for_field(row.field_id());
         let swatch = selected.unwrap_or(fallback_color()).packed_rgb();
 
         div()
@@ -133,11 +136,18 @@ impl SettingsPanel {
                             .text_color(theme_color(self.visual_theme.popup.muted_foreground))
                             .child("Saved colors"),
                     )
-                    .child(div().flex().flex_wrap().gap_2().children(
-                        self.saved_color_swatches.iter().copied().map(|color| {
-                            self.render_saved_color_picker_swatch(color, selected, cx)
-                        }),
-                    )),
+                    .child(
+                        div()
+                            .id("settings-color-picker-saved-swatches")
+                            .overflow_y_scroll()
+                            .max_h(px(COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT))
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .children(self.saved_color_swatches.iter().copied().map(|color| {
+                                self.render_saved_color_picker_swatch(color, selected, cx)
+                            })),
+                    ),
             )
     }
 

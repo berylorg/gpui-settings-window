@@ -1,4 +1,6 @@
 use super::*;
+use std::collections::HashSet;
+
 use crate::color_picker::{
     ColorComponentInputEvent, ColorPickerMainPaletteSelection, ColorPickerNeutralStripSelection,
     apply_color_picker_channel_text, apply_color_picker_lightness, color_picker_channel_text,
@@ -15,8 +17,8 @@ impl SettingsPanel {
     ) {
         let is_color = self
             .model
-            .row(field_id)
-            .is_some_and(|row| row.kind() == crate::SettingsFieldKind::Color);
+            .field_kind(field_id)
+            .is_some_and(|kind| kind == crate::SettingsFieldKind::Color);
 
         if is_color {
             if let Some(color) = RgbColor::parse(value) {
@@ -57,8 +59,8 @@ impl SettingsPanel {
     ) {
         if self
             .model
-            .row(&field_id)
-            .is_none_or(|row| row.kind() != crate::SettingsFieldKind::Color)
+            .field_kind(&field_id)
+            .is_none_or(|kind| kind != crate::SettingsFieldKind::Color)
         {
             return;
         }
@@ -72,11 +74,10 @@ impl SettingsPanel {
             *self.color_picker_lightness_bar_bounds.borrow_mut() = None;
         }
 
-        let Some(row) = self.model.row(&field_id) else {
+        let Some(value) = self.model.field_value(&field_id).map(str::to_owned) else {
             return;
         };
-        let value = row.value().to_owned();
-        let error = row.error().map(str::to_owned);
+        let error = self.model.field_error(&field_id).map(str::to_owned);
         self.color_picker_field = Some(field_id.clone());
 
         if self.color_picker_channel_inputs.is_empty() {
@@ -207,19 +208,22 @@ impl SettingsPanel {
     }
 
     pub(super) fn sync_latest_known_color_values(&mut self) {
-        self.latest_known_color_values.retain(|(field_id, _)| {
-            self.model
-                .row(field_id)
-                .is_some_and(|row| row.kind() == crate::SettingsFieldKind::Color)
-        });
+        let color_field_ids: HashSet<_> = self
+            .model
+            .text_input_field_snapshots()
+            .into_iter()
+            .filter(|field| field.kind == crate::SettingsFieldKind::Color)
+            .map(|field| field.field_id)
+            .collect();
+        self.latest_known_color_values
+            .retain(|field_id, _| color_field_ids.contains(field_id));
 
         let color_rows: Vec<(SettingsFieldId, RgbColor)> = self
             .model
-            .rows()
-            .filter(|row| row.kind() == crate::SettingsFieldKind::Color)
-            .filter_map(|row| {
-                RgbColor::parse(row.value()).map(|color| (row.field_id().clone(), color))
-            })
+            .text_input_field_snapshots()
+            .into_iter()
+            .filter(|field| field.kind == crate::SettingsFieldKind::Color)
+            .filter_map(|field| RgbColor::parse(&field.value).map(|color| (field.field_id, color)))
             .collect();
 
         for (field_id, color) in color_rows {
@@ -228,35 +232,41 @@ impl SettingsPanel {
     }
 
     pub(super) fn remember_latest_color(&mut self, field_id: SettingsFieldId, color: RgbColor) {
-        if let Some((_, stored_color)) = self
-            .latest_known_color_values
-            .iter_mut()
-            .find(|(stored_field, _)| *stored_field == field_id)
-        {
-            *stored_color = color;
-        } else {
-            self.latest_known_color_values.push((field_id, color));
-        }
+        self.latest_known_color_values.insert(field_id, color);
     }
 
     pub(super) fn latest_known_color_for_field(
         &self,
         field_id: &SettingsFieldId,
     ) -> Option<RgbColor> {
-        self.latest_known_color_values
-            .iter()
-            .find(|(stored_field, _)| stored_field == field_id)
-            .map(|(_, color)| *color)
+        self.latest_known_color_values.get(field_id).copied()
     }
 
     pub(super) fn synced_color_for_field(&self, field_id: &SettingsFieldId) -> Option<RgbColor> {
+        self.record_color_model_lookup();
         self.model
-            .row(field_id)
-            .and_then(|row| RgbColor::parse(row.value()))
+            .field_value(field_id)
+            .and_then(RgbColor::parse)
             .or_else(|| self.latest_known_color_for_field(field_id))
     }
 
+    pub(super) fn color_preview_for_rendered_field(
+        &self,
+        field_id: &SettingsFieldId,
+        value: &str,
+    ) -> Option<RgbColor> {
+        self.record_color_preview_lookup();
+        if self.color_picker_field.as_ref() == Some(field_id) {
+            self.color_picker_preview_color
+                .or_else(|| RgbColor::parse(value))
+                .or_else(|| self.latest_known_color_for_field(field_id))
+        } else {
+            RgbColor::parse(value).or_else(|| self.latest_known_color_for_field(field_id))
+        }
+    }
+
     pub(super) fn color_preview_for_field(&self, field_id: &SettingsFieldId) -> Option<RgbColor> {
+        self.record_color_preview_lookup();
         if self.color_picker_field.as_ref() == Some(field_id) {
             self.current_color_picker_color()
         } else {
@@ -276,18 +286,21 @@ impl SettingsPanel {
         let Some(field_id) = self.color_picker_field.clone() else {
             return;
         };
-        let Some(row) = self.model.row(&field_id) else {
+        let Some(kind) = self.model.field_kind(&field_id) else {
             self.color_picker_field = None;
             self.color_picker_preview_color = None;
             return;
         };
-        if row.kind() != crate::SettingsFieldKind::Color {
+        if kind != crate::SettingsFieldKind::Color {
             self.close_color_picker(cx);
             return;
         }
 
-        let value = row.value().to_owned();
-        let error = row.error().map(str::to_owned);
+        let Some(value) = self.model.field_value(&field_id).map(str::to_owned) else {
+            self.close_color_picker(cx);
+            return;
+        };
+        let error = self.model.field_error(&field_id).map(str::to_owned);
         if let Some(input) = self.color_picker_input.clone() {
             let _ = input.update(cx, |input, cx| {
                 input.retarget(
@@ -310,6 +323,7 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.color_picker_preview_color = color;
+        let mut input_sync_entity_count = 0usize;
         for field in ColorPickerChannelField::ALL {
             let value = if self.color_picker_focused_channel == Some(field) {
                 self.color_picker_channel_empty_drafts
@@ -326,7 +340,9 @@ impl SettingsPanel {
                 input.sync(value.as_str(), self.font_size, cx);
                 input.sync_visual_theme(&self.visual_theme.input, cx);
             });
+            input_sync_entity_count = input_sync_entity_count.saturating_add(1);
         }
+        self.record_input_sync_diagnostics(input_sync_entity_count);
     }
 
     pub(super) fn apply_color_picker_swatch(&mut self, color: RgbColor, cx: &mut Context<Self>) {

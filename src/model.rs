@@ -2,274 +2,72 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
+mod actions;
 mod element_id;
+mod ids;
+mod page;
+mod row;
+mod split;
 
+pub use actions::{
+    SettingsActionAvailability, SettingsPageAction, SettingsPageActionPriority, SettingsRowAction,
+};
 pub(crate) use element_id::element_id_suffix;
+pub use ids::{
+    SettingsFieldId, SettingsPageActionId, SettingsPageId, SettingsPageSplitItemId,
+    SettingsRowActionId, SettingsSectionId,
+};
+pub use page::{SettingsBreadcrumbSegment, SettingsPage};
+pub use row::{
+    SettingsChoiceOption, SettingsFieldKind, SettingsRow, SettingsRowDetailField, SettingsRowKind,
+};
+pub use split::{SettingsPageSplit, SettingsPageSplitItem, SettingsPageSplitItemPreviewStyle};
 
-/// Stable identifier for a settings section.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SettingsSectionId(String);
+/// Maximum number of detail rows allowed on one settings page.
+pub const MAX_PAGE_DETAIL_ROWS: usize = 32;
 
-impl SettingsSectionId {
-    /// Creates a section identifier.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    /// Returns the identifier as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for SettingsSectionId {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for SettingsSectionId {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for SettingsSectionId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-
-/// Stable identifier for a settings field.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SettingsFieldId(String);
-
-impl SettingsFieldId {
-    /// Creates a field identifier.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    /// Returns the identifier as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for SettingsFieldId {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for SettingsFieldId {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for SettingsFieldId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-
-/// Stable identifier for an action attached to a settings row.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SettingsRowActionId(String);
-
-impl SettingsRowActionId {
-    /// Creates a row action identifier.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    /// Returns the identifier as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for SettingsRowActionId {
-    fn from(value: &str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for SettingsRowActionId {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-
-impl fmt::Display for SettingsRowActionId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-
-/// Presentation kind for a settings row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SettingsFieldKind {
-    /// A plain single-line text value.
-    Text,
-    /// A plain multiline text value.
-    MultilineText,
-    /// A canonical RGB hex color value such as `#6699cc`.
-    Color,
-}
-
-/// App-neutral action presented beside a settings row input.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingsRowAction {
-    action_id: SettingsRowActionId,
-    label: String,
-}
-
-impl SettingsRowAction {
-    /// Creates a row action.
-    pub fn new(action_id: impl Into<SettingsRowActionId>, label: impl Into<String>) -> Self {
-        Self {
-            action_id: action_id.into(),
-            label: label.into(),
-        }
-    }
-
-    /// Returns the row action's stable identifier.
-    pub fn action_id(&self) -> &SettingsRowActionId {
-        &self.action_id
-    }
-
-    /// Returns the row action display label.
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-}
-
-/// One key-value row in the settings content area.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SettingsRow {
-    field_id: SettingsFieldId,
-    label: String,
-    subtext: Option<String>,
-    value: String,
-    kind: SettingsFieldKind,
-    error: Option<String>,
-    actions: Vec<SettingsRowAction>,
-}
-
-impl SettingsRow {
-    /// Creates a settings row.
-    pub fn new(
-        field_id: impl Into<SettingsFieldId>,
-        label: impl Into<String>,
-        value: impl Into<String>,
-        kind: SettingsFieldKind,
-    ) -> Self {
-        Self {
-            field_id: field_id.into(),
-            label: label.into(),
-            subtext: None,
-            value: value.into(),
-            kind,
-            error: None,
-            actions: Vec::new(),
-        }
-    }
-
-    /// Returns a copy of this row with secondary label-side subtext.
-    pub fn with_subtext(mut self, subtext: impl Into<String>) -> Self {
-        let subtext = subtext.into();
-        self.subtext = (!subtext.is_empty()).then_some(subtext);
-        self
-    }
-
-    /// Returns a copy of this row with an attached validation message.
-    pub fn with_error(mut self, error: impl Into<String>) -> Self {
-        self.error = Some(error.into());
-        self
-    }
-
-    /// Returns a copy of this row without a validation message.
-    pub fn without_error(mut self) -> Self {
-        self.error = None;
-        self
-    }
-
-    /// Returns a copy of this row with another presentation value.
-    pub fn with_value(mut self, value: impl Into<String>) -> Self {
-        self.value = value.into();
-        self
-    }
-
-    /// Returns a copy of this row with an appended app-neutral action.
-    pub fn with_action(mut self, action: SettingsRowAction) -> Self {
-        self.actions.push(action);
-        self
-    }
-
-    /// Returns the row's stable field identifier.
-    pub fn field_id(&self) -> &SettingsFieldId {
-        &self.field_id
-    }
-
-    /// Returns the row label.
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-
-    /// Returns the optional row subtext.
-    pub fn subtext(&self) -> Option<&str> {
-        self.subtext.as_deref()
-    }
-
-    /// Returns the row value.
-    pub fn value(&self) -> &str {
-        &self.value
-    }
-
-    /// Returns the row field kind.
-    pub fn kind(&self) -> SettingsFieldKind {
-        self.kind
-    }
-
-    /// Returns the optional validation message.
-    pub fn error(&self) -> Option<&str> {
-        self.error.as_deref()
-    }
-
-    /// Returns the ordered row actions.
-    pub fn actions(&self) -> &[SettingsRowAction] {
-        &self.actions
-    }
-
-    pub(crate) fn set_value(&mut self, value: impl Into<String>) {
-        self.value = value.into();
-    }
-}
-
-/// One left-navigation section and its ordered setting rows.
+/// One left-navigation section with a root page and optional subpages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsSection {
     section_id: SettingsSectionId,
     label: String,
-    rows: Vec<SettingsRow>,
+    root_page: SettingsPage,
+    subpages: Vec<SettingsPage>,
 }
 
 impl SettingsSection {
-    /// Creates a settings section.
+    /// Creates a settings section whose root page uses the section identifier.
     pub fn new(section_id: impl Into<SettingsSectionId>, label: impl Into<String>) -> Self {
+        let section_id = section_id.into();
+        let label = label.into();
+        let root_page = SettingsPage::new(section_id.as_str().to_owned(), label.clone());
         Self {
-            section_id: section_id.into(),
-            label: label.into(),
-            rows: Vec::new(),
+            section_id,
+            label,
+            root_page,
+            subpages: Vec::new(),
         }
     }
 
-    /// Returns a copy of this section with an appended row.
+    /// Returns a copy of this section with a replaced root page.
+    pub fn with_root_page(mut self, page: SettingsPage) -> Self {
+        self.root_page = page;
+        self
+    }
+
+    /// Returns a copy of this section with an appended root-page row.
     pub fn with_row(mut self, row: SettingsRow) -> Self {
-        self.rows.push(row);
+        let root_page = std::mem::replace(
+            &mut self.root_page,
+            SettingsPage::new("__temporary_root_page__", ""),
+        );
+        self.root_page = root_page.with_row(row);
+        self
+    }
+
+    /// Returns a copy of this section with an appended subpage.
+    pub fn with_page(mut self, page: SettingsPage) -> Self {
+        self.subpages.push(page);
         self
     }
 
@@ -283,9 +81,24 @@ impl SettingsSection {
         &self.label
     }
 
-    /// Returns the ordered rows in this section.
+    /// Returns the section root page.
+    pub fn root_page(&self) -> &SettingsPage {
+        &self.root_page
+    }
+
+    /// Returns ordered subpages for this section.
+    pub fn subpages(&self) -> &[SettingsPage] {
+        &self.subpages
+    }
+
+    /// Returns the ordered rows in this section's root page.
     pub fn rows(&self) -> &[SettingsRow] {
-        &self.rows
+        self.root_page.rows()
+    }
+
+    /// Returns every page owned by this section, root page first.
+    pub fn pages(&self) -> impl Iterator<Item = &SettingsPage> {
+        std::iter::once(&self.root_page).chain(self.subpages.iter())
     }
 }
 
@@ -294,10 +107,11 @@ impl SettingsSection {
 pub struct SettingsWindowModel {
     sections: Vec<SettingsSection>,
     selected_section_id: SettingsSectionId,
+    selected_page_id: SettingsPageId,
 }
 
 impl SettingsWindowModel {
-    /// Creates a model and selects the first section.
+    /// Creates a model and selects the first section's root page.
     pub fn new(sections: Vec<SettingsSection>) -> Result<Self, SettingsWindowError> {
         let selected_section_id = sections
             .first()
@@ -307,7 +121,7 @@ impl SettingsWindowModel {
         Self::with_selected_section(sections, selected_section_id)
     }
 
-    /// Creates a model and selects a specific section.
+    /// Creates a model and selects a specific section's root page.
     pub fn with_selected_section(
         sections: Vec<SettingsSection>,
         selected_section_id: impl Into<SettingsSectionId>,
@@ -315,36 +129,102 @@ impl SettingsWindowModel {
         validate_sections(&sections)?;
 
         let selected_section_id = selected_section_id.into();
-        if !sections
+        let Some(section) = sections
             .iter()
-            .any(|section| section.section_id == selected_section_id)
-        {
+            .find(|section| section.section_id == selected_section_id)
+        else {
             return Err(SettingsWindowError::MissingSelectedSection(
                 selected_section_id,
             ));
+        };
+        let selected_page_id = section.root_page().page_id().clone();
+
+        Ok(Self {
+            sections,
+            selected_section_id,
+            selected_page_id,
+        })
+    }
+
+    /// Creates a model and selects a specific page within a specific section.
+    pub fn with_selected_page(
+        sections: Vec<SettingsSection>,
+        selected_section_id: impl Into<SettingsSectionId>,
+        selected_page_id: impl Into<SettingsPageId>,
+    ) -> Result<Self, SettingsWindowError> {
+        validate_sections(&sections)?;
+
+        let selected_section_id = selected_section_id.into();
+        let selected_page_id = selected_page_id.into();
+        let Some(section) = sections
+            .iter()
+            .find(|section| section.section_id == selected_section_id)
+        else {
+            return Err(SettingsWindowError::MissingSelectedSection(
+                selected_section_id,
+            ));
+        };
+
+        if !section
+            .pages()
+            .any(|page| page.page_id() == &selected_page_id)
+        {
+            if sections
+                .iter()
+                .flat_map(SettingsSection::pages)
+                .any(|page| page.page_id() == &selected_page_id)
+            {
+                return Err(SettingsWindowError::SelectedPageOutsideSection {
+                    section_id: selected_section_id,
+                    page_id: selected_page_id,
+                });
+            }
+
+            return Err(SettingsWindowError::MissingSelectedPage(selected_page_id));
         }
 
         Ok(Self {
             sections,
             selected_section_id,
+            selected_page_id,
         })
     }
 
-    /// Selects another section.
+    /// Selects another section and its root page.
     pub fn select_section(
         &mut self,
         section_id: impl Into<SettingsSectionId>,
     ) -> Result<(), SettingsWindowError> {
         let section_id = section_id.into();
-        if !self
+        let Some(section) = self
             .sections
             .iter()
-            .any(|section| section.section_id == section_id)
-        {
+            .find(|section| section.section_id == section_id)
+        else {
             return Err(SettingsWindowError::MissingSelectedSection(section_id));
-        }
+        };
 
+        self.selected_page_id = section.root_page().page_id().clone();
         self.selected_section_id = section_id;
+        Ok(())
+    }
+
+    /// Selects another page and its owning section.
+    pub fn select_page(
+        &mut self,
+        page_id: impl Into<SettingsPageId>,
+    ) -> Result<(), SettingsWindowError> {
+        let page_id = page_id.into();
+        let Some(section) = self
+            .sections
+            .iter()
+            .find(|section| section.pages().any(|page| page.page_id() == &page_id))
+        else {
+            return Err(SettingsWindowError::MissingSelectedPage(page_id));
+        };
+
+        self.selected_section_id = section.section_id().clone();
+        self.selected_page_id = page_id;
         Ok(())
     }
 
@@ -353,14 +233,75 @@ impl SettingsWindowModel {
         &self.sections
     }
 
-    /// Returns all rows across all sections in presentation order.
+    /// Returns all rows across all pages in presentation order.
     pub fn rows(&self) -> impl Iterator<Item = &SettingsRow> {
-        self.sections.iter().flat_map(SettingsSection::rows)
+        self.sections
+            .iter()
+            .flat_map(SettingsSection::pages)
+            .flat_map(SettingsPage::rows)
+    }
+
+    /// Returns all editable field rows across all pages in presentation order.
+    pub fn field_rows(&self) -> impl Iterator<Item = &SettingsRow> {
+        self.rows().filter(|row| row.is_field())
+    }
+
+    /// Returns the field kind for a primary or secondary field by identifier.
+    pub fn field_kind(&self, field_id: &SettingsFieldId) -> Option<SettingsFieldKind> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id {
+                return Some(row.kind());
+            }
+            row.detail_field()
+                .filter(|field| field.field_id() == field_id)
+                .map(|field| field.kind())
+        })
+    }
+
+    /// Returns the presentation value for a primary or secondary field by identifier.
+    pub fn field_value(&self, field_id: &SettingsFieldId) -> Option<&str> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id {
+                return Some(row.value());
+            }
+            row.detail_field()
+                .filter(|field| field.field_id() == field_id)
+                .map(|field| field.value())
+        })
+    }
+
+    /// Returns the validation message for a primary or secondary field by identifier.
+    pub fn field_error(&self, field_id: &SettingsFieldId) -> Option<&str> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id {
+                return row.error();
+            }
+            row.detail_field()
+                .filter(|field| field.field_id() == field_id)
+                .and_then(|field| field.error())
+        })
+    }
+
+    /// Returns the choices for a primary or secondary choice field by identifier.
+    pub fn field_choices(&self, field_id: &SettingsFieldId) -> Option<&[SettingsChoiceOption]> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id {
+                return Some(row.choices());
+            }
+            row.detail_field()
+                .filter(|field| field.field_id() == field_id)
+                .map(|field| field.choices())
+        })
     }
 
     /// Returns the currently selected section identifier.
     pub fn selected_section_id(&self) -> &SettingsSectionId {
         &self.selected_section_id
+    }
+
+    /// Returns the currently selected page identifier.
+    pub fn selected_page_id(&self) -> &SettingsPageId {
+        &self.selected_page_id
     }
 
     /// Returns the currently selected section.
@@ -371,36 +312,63 @@ impl SettingsWindowModel {
             .expect("selected section is validated when the model is created or updated")
     }
 
-    /// Returns the rows for the currently selected section.
-    pub fn selected_rows(&self) -> &[SettingsRow] {
-        self.selected_section().rows()
+    /// Returns the currently selected page.
+    pub fn selected_page(&self) -> &SettingsPage {
+        self.page(&self.selected_page_id)
+            .expect("selected page is validated when the model is created or updated")
     }
 
-    /// Finds a row by its field identifier.
+    /// Returns the rows for the currently selected page.
+    pub fn selected_rows(&self) -> &[SettingsRow] {
+        self.selected_page().rows()
+    }
+
+    /// Finds a page by its stable identifier.
+    pub fn page(&self, page_id: &SettingsPageId) -> Option<&SettingsPage> {
+        self.sections
+            .iter()
+            .flat_map(SettingsSection::pages)
+            .find(|page| page.page_id() == page_id)
+    }
+
+    /// Finds a row by its field or row identifier.
     pub fn row(&self, field_id: &SettingsFieldId) -> Option<&SettingsRow> {
         self.sections
             .iter()
-            .flat_map(SettingsSection::rows)
+            .flat_map(SettingsSection::pages)
+            .flat_map(SettingsPage::rows)
             .find(|row| row.field_id() == field_id)
     }
 
-    /// Updates a row value by field identifier.
+    /// Updates a field row value by identifier.
     pub fn set_row_value(
         &mut self,
         field_id: &SettingsFieldId,
         value: impl Into<String>,
     ) -> Result<(), SettingsWindowError> {
-        let Some(row) = self
+        let value = value.into();
+        for row in self
             .sections
             .iter_mut()
-            .flat_map(|section| section.rows.iter_mut())
-            .find(|row| row.field_id() == field_id)
-        else {
-            return Err(SettingsWindowError::MissingField(field_id.clone()));
-        };
+            .flat_map(|section| {
+                std::iter::once(&mut section.root_page).chain(section.subpages.iter_mut())
+            })
+            .flat_map(SettingsPage::rows_mut)
+        {
+            if row.field_id() == field_id {
+                row.set_value(value);
+                return Ok(());
+            }
+            if let Some(field) = row
+                .detail_field_mut()
+                .filter(|field| field.field_id() == field_id)
+            {
+                field.set_value(value);
+                return Ok(());
+            }
+        }
 
-        row.set_value(value);
-        Ok(())
+        Err(SettingsWindowError::MissingField(field_id.clone()))
     }
 }
 
@@ -412,6 +380,11 @@ pub enum SettingsWindowEvent {
     SectionSelected {
         /// Selected section identifier.
         section_id: SettingsSectionId,
+    },
+    /// The user requested navigation to a page.
+    PageNavigationRequested {
+        /// Target page identifier.
+        page_id: SettingsPageId,
     },
     /// The user changed a field value.
     FieldChanged {
@@ -427,10 +400,24 @@ pub enum SettingsWindowEvent {
     },
     /// The user requested an app-neutral action attached to a row.
     RowActionRequested {
-        /// Field identifier for the row that owns the action.
+        /// Field or row identifier for the row that owns the action.
         field_id: SettingsFieldId,
         /// Requested action identifier.
         action_id: SettingsRowActionId,
+    },
+    /// The user requested an app-neutral action attached to a page.
+    PageActionRequested {
+        /// Page identifier for the page that owns the action.
+        page_id: SettingsPageId,
+        /// Requested action identifier.
+        action_id: SettingsPageActionId,
+    },
+    /// The user selected an item from a page-local split list.
+    PageSplitItemSelected {
+        /// Page identifier for the page that owns the local split list.
+        page_id: SettingsPageId,
+        /// Selected split-list item identifier.
+        item_id: SettingsPageSplitItemId,
     },
     /// The user requested accepting current settings values, usually from OK or Enter.
     AcceptRequested,
@@ -451,6 +438,19 @@ pub enum SettingsWindowError {
     EmptySectionId,
     /// More than one section uses the same identifier.
     DuplicateSectionId(SettingsSectionId),
+    /// A page has an empty identifier.
+    EmptyPageId,
+    /// More than one page uses the same identifier.
+    DuplicatePageId(SettingsPageId),
+    /// A page has more detail rows than the full-rendered page contract allows.
+    TooManyPageRows {
+        /// Page that owns the excess detail rows.
+        page_id: SettingsPageId,
+        /// Actual detail row count.
+        row_count: usize,
+        /// Maximum allowed detail row count.
+        max_row_count: usize,
+    },
     /// A field has an empty identifier.
     EmptyFieldId,
     /// More than one row uses the same field identifier.
@@ -460,6 +460,30 @@ pub enum SettingsWindowError {
         /// Field identifier for the row that owns the invalid action.
         field_id: SettingsFieldId,
     },
+    /// A choice field has no choices.
+    EmptyChoiceOptions {
+        /// Field identifier for the invalid choice row.
+        field_id: SettingsFieldId,
+    },
+    /// A choice field option has an empty value.
+    EmptyChoiceOptionValue {
+        /// Field identifier for the invalid choice row.
+        field_id: SettingsFieldId,
+    },
+    /// More than one choice option on a row uses the same value.
+    DuplicateChoiceOptionValue {
+        /// Field identifier for the invalid choice row.
+        field_id: SettingsFieldId,
+        /// Duplicate choice value.
+        value: String,
+    },
+    /// A choice field row value does not match any option value.
+    MissingChoiceValue {
+        /// Field identifier for the invalid choice row.
+        field_id: SettingsFieldId,
+        /// Missing selected value.
+        value: String,
+    },
     /// More than one action on a row uses the same identifier.
     DuplicateRowActionId {
         /// Field identifier for the row that owns the duplicate action.
@@ -467,10 +491,69 @@ pub enum SettingsWindowError {
         /// Duplicate action identifier.
         action_id: SettingsRowActionId,
     },
+    /// A page action has an empty identifier.
+    EmptyPageActionId {
+        /// Page identifier for the page that owns the invalid action.
+        page_id: SettingsPageId,
+    },
+    /// More than one action on a page uses the same identifier.
+    DuplicatePageActionId {
+        /// Page identifier for the page that owns the duplicate action.
+        page_id: SettingsPageId,
+        /// Duplicate action identifier.
+        action_id: SettingsPageActionId,
+    },
+    /// A page-local split-list item has an empty identifier.
+    EmptyPageSplitItemId {
+        /// Page identifier for the page that owns the invalid item.
+        page_id: SettingsPageId,
+    },
+    /// More than one page-local split-list item uses the same identifier on one page.
+    DuplicatePageSplitItemId {
+        /// Page identifier for the page that owns the duplicate item.
+        page_id: SettingsPageId,
+        /// Duplicate item identifier.
+        item_id: SettingsPageSplitItemId,
+    },
+    /// More than one page-local split-list item is marked selected on one page.
+    MultiplePageSplitItemsSelected {
+        /// Page identifier for the page that owns the invalid selected state.
+        page_id: SettingsPageId,
+    },
     /// A field identifier does not exist in the model.
     MissingField(SettingsFieldId),
     /// The selected section is not present in the model.
     MissingSelectedSection(SettingsSectionId),
+    /// The selected page is not present in the model.
+    MissingSelectedPage(SettingsPageId),
+    /// The selected page belongs to a different section.
+    SelectedPageOutsideSection {
+        /// Selected section identifier.
+        section_id: SettingsSectionId,
+        /// Selected page identifier.
+        page_id: SettingsPageId,
+    },
+    /// A navigation row targets a page that does not exist.
+    MissingNavigationTargetPage {
+        /// Field identifier for the navigation row.
+        field_id: SettingsFieldId,
+        /// Missing target page.
+        target_page_id: SettingsPageId,
+    },
+    /// A page back target does not exist.
+    MissingBackTargetPage {
+        /// Page that owns the invalid back target.
+        page_id: SettingsPageId,
+        /// Missing target page.
+        target_page_id: SettingsPageId,
+    },
+    /// A breadcrumb target does not exist.
+    MissingBreadcrumbTargetPage {
+        /// Page that owns the invalid breadcrumb.
+        page_id: SettingsPageId,
+        /// Missing target page.
+        target_page_id: SettingsPageId,
+    },
 }
 
 impl fmt::Display for SettingsWindowError {
@@ -480,6 +563,20 @@ impl fmt::Display for SettingsWindowError {
             Self::EmptySectionId => write!(formatter, "settings section id is empty"),
             Self::DuplicateSectionId(section_id) => {
                 write!(formatter, "duplicate settings section id `{section_id}`")
+            }
+            Self::EmptyPageId => write!(formatter, "settings page id is empty"),
+            Self::DuplicatePageId(page_id) => {
+                write!(formatter, "duplicate settings page id `{page_id}`")
+            }
+            Self::TooManyPageRows {
+                page_id,
+                row_count,
+                max_row_count,
+            } => {
+                write!(
+                    formatter,
+                    "settings page `{page_id}` has {row_count} detail rows, above the maximum {max_row_count}"
+                )
             }
             Self::EmptyFieldId => write!(formatter, "settings field id is empty"),
             Self::DuplicateFieldId(field_id) => {
@@ -491,6 +588,27 @@ impl fmt::Display for SettingsWindowError {
                     "settings row action id is empty for `{field_id}`"
                 )
             }
+            Self::EmptyChoiceOptions { field_id } => {
+                write!(formatter, "settings choice row `{field_id}` has no options")
+            }
+            Self::EmptyChoiceOptionValue { field_id } => {
+                write!(
+                    formatter,
+                    "settings choice row `{field_id}` has an empty option value"
+                )
+            }
+            Self::DuplicateChoiceOptionValue { field_id, value } => {
+                write!(
+                    formatter,
+                    "duplicate settings choice option value `{value}` for `{field_id}`"
+                )
+            }
+            Self::MissingChoiceValue { field_id, value } => {
+                write!(
+                    formatter,
+                    "settings choice row `{field_id}` selected missing value `{value}`"
+                )
+            }
             Self::DuplicateRowActionId {
                 field_id,
                 action_id,
@@ -500,6 +618,36 @@ impl fmt::Display for SettingsWindowError {
                     "duplicate settings row action id `{action_id}` for `{field_id}`"
                 )
             }
+            Self::EmptyPageActionId { page_id } => {
+                write!(
+                    formatter,
+                    "settings page action id is empty for `{page_id}`"
+                )
+            }
+            Self::DuplicatePageActionId { page_id, action_id } => {
+                write!(
+                    formatter,
+                    "duplicate settings page action id `{action_id}` for `{page_id}`"
+                )
+            }
+            Self::EmptyPageSplitItemId { page_id } => {
+                write!(
+                    formatter,
+                    "settings page split item id is empty for `{page_id}`"
+                )
+            }
+            Self::DuplicatePageSplitItemId { page_id, item_id } => {
+                write!(
+                    formatter,
+                    "duplicate settings page split item id `{item_id}` for `{page_id}`"
+                )
+            }
+            Self::MultiplePageSplitItemsSelected { page_id } => {
+                write!(
+                    formatter,
+                    "settings page `{page_id}` has multiple selected split items"
+                )
+            }
             Self::MissingField(field_id) => {
                 write!(formatter, "settings field `{field_id}` does not exist")
             }
@@ -507,6 +655,48 @@ impl fmt::Display for SettingsWindowError {
                 write!(
                     formatter,
                     "selected settings section `{section_id}` does not exist"
+                )
+            }
+            Self::MissingSelectedPage(page_id) => {
+                write!(
+                    formatter,
+                    "selected settings page `{page_id}` does not exist"
+                )
+            }
+            Self::SelectedPageOutsideSection {
+                section_id,
+                page_id,
+            } => {
+                write!(
+                    formatter,
+                    "selected settings page `{page_id}` is outside section `{section_id}`"
+                )
+            }
+            Self::MissingNavigationTargetPage {
+                field_id,
+                target_page_id,
+            } => {
+                write!(
+                    formatter,
+                    "navigation row `{field_id}` targets missing page `{target_page_id}`"
+                )
+            }
+            Self::MissingBackTargetPage {
+                page_id,
+                target_page_id,
+            } => {
+                write!(
+                    formatter,
+                    "settings page `{page_id}` has missing back target `{target_page_id}`"
+                )
+            }
+            Self::MissingBreadcrumbTargetPage {
+                page_id,
+                target_page_id,
+            } => {
+                write!(
+                    formatter,
+                    "settings page `{page_id}` has missing breadcrumb target `{target_page_id}`"
                 )
             }
         }
@@ -521,7 +711,7 @@ fn validate_sections(sections: &[SettingsSection]) -> Result<(), SettingsWindowE
     }
 
     let mut section_ids = HashSet::new();
-    let mut field_ids = HashSet::new();
+    let mut page_ids = HashSet::new();
 
     for section in sections {
         if section.section_id.as_str().is_empty() {
@@ -534,33 +724,219 @@ fn validate_sections(sections: &[SettingsSection]) -> Result<(), SettingsWindowE
             ));
         }
 
-        for row in section.rows() {
-            if row.field_id().as_str().is_empty() {
-                return Err(SettingsWindowError::EmptyFieldId);
+        for page in section.pages() {
+            if page.page_id().as_str().is_empty() {
+                return Err(SettingsWindowError::EmptyPageId);
             }
 
-            if !field_ids.insert(row.field_id().clone()) {
-                return Err(SettingsWindowError::DuplicateFieldId(
-                    row.field_id().clone(),
-                ));
-            }
-
-            let mut action_ids = HashSet::new();
-            for action in row.actions() {
-                if action.action_id().as_str().is_empty() {
-                    return Err(SettingsWindowError::EmptyRowActionId {
-                        field_id: row.field_id().clone(),
-                    });
-                }
-
-                if !action_ids.insert(action.action_id().clone()) {
-                    return Err(SettingsWindowError::DuplicateRowActionId {
-                        field_id: row.field_id().clone(),
-                        action_id: action.action_id().clone(),
-                    });
-                }
+            if !page_ids.insert(page.page_id().clone()) {
+                return Err(SettingsWindowError::DuplicatePageId(page.page_id().clone()));
             }
         }
+    }
+
+    let mut field_ids = HashSet::new();
+    for section in sections {
+        for page in section.pages() {
+            validate_page(page, &page_ids, &mut field_ids)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_page(
+    page: &SettingsPage,
+    page_ids: &HashSet<SettingsPageId>,
+    field_ids: &mut HashSet<SettingsFieldId>,
+) -> Result<(), SettingsWindowError> {
+    if page.rows().len() > MAX_PAGE_DETAIL_ROWS {
+        return Err(SettingsWindowError::TooManyPageRows {
+            page_id: page.page_id().clone(),
+            row_count: page.rows().len(),
+            max_row_count: MAX_PAGE_DETAIL_ROWS,
+        });
+    }
+
+    if let Some(target_page_id) = page.back_target_page_id() {
+        if !page_ids.contains(target_page_id) {
+            return Err(SettingsWindowError::MissingBackTargetPage {
+                page_id: page.page_id().clone(),
+                target_page_id: target_page_id.clone(),
+            });
+        }
+    }
+
+    for segment in page.breadcrumb_path() {
+        if let Some(target_page_id) = segment.target_page_id() {
+            if !page_ids.contains(target_page_id) {
+                return Err(SettingsWindowError::MissingBreadcrumbTargetPage {
+                    page_id: page.page_id().clone(),
+                    target_page_id: target_page_id.clone(),
+                });
+            }
+        }
+    }
+
+    let mut page_action_ids = HashSet::new();
+    for action in page.actions() {
+        if action.action_id().as_str().is_empty() {
+            return Err(SettingsWindowError::EmptyPageActionId {
+                page_id: page.page_id().clone(),
+            });
+        }
+
+        if !page_action_ids.insert(action.action_id().clone()) {
+            return Err(SettingsWindowError::DuplicatePageActionId {
+                page_id: page.page_id().clone(),
+                action_id: action.action_id().clone(),
+            });
+        }
+    }
+
+    if let Some(split) = page.local_split() {
+        let mut item_ids = HashSet::new();
+        let mut selected_count = 0;
+        for item in split.items() {
+            if item.item_id().as_str().is_empty() {
+                return Err(SettingsWindowError::EmptyPageSplitItemId {
+                    page_id: page.page_id().clone(),
+                });
+            }
+
+            if !item_ids.insert(item.item_id().clone()) {
+                return Err(SettingsWindowError::DuplicatePageSplitItemId {
+                    page_id: page.page_id().clone(),
+                    item_id: item.item_id().clone(),
+                });
+            }
+
+            if item.is_selected() {
+                selected_count += 1;
+            }
+        }
+
+        if selected_count > 1 {
+            return Err(SettingsWindowError::MultiplePageSplitItemsSelected {
+                page_id: page.page_id().clone(),
+            });
+        }
+    }
+
+    for row in page.rows() {
+        validate_row(row, page_ids, field_ids)?;
+    }
+
+    Ok(())
+}
+
+fn validate_row(
+    row: &SettingsRow,
+    page_ids: &HashSet<SettingsPageId>,
+    field_ids: &mut HashSet<SettingsFieldId>,
+) -> Result<(), SettingsWindowError> {
+    if row.field_id().as_str().is_empty() {
+        return Err(SettingsWindowError::EmptyFieldId);
+    }
+
+    if !field_ids.insert(row.field_id().clone()) {
+        return Err(SettingsWindowError::DuplicateFieldId(
+            row.field_id().clone(),
+        ));
+    }
+
+    if let Some(target_page_id) = row.navigation_target_page_id() {
+        if !page_ids.contains(target_page_id) {
+            return Err(SettingsWindowError::MissingNavigationTargetPage {
+                field_id: row.field_id().clone(),
+                target_page_id: target_page_id.clone(),
+            });
+        }
+    }
+
+    let mut action_ids = HashSet::new();
+    for action in row.actions() {
+        if action.action_id().as_str().is_empty() {
+            return Err(SettingsWindowError::EmptyRowActionId {
+                field_id: row.field_id().clone(),
+            });
+        }
+
+        if !action_ids.insert(action.action_id().clone()) {
+            return Err(SettingsWindowError::DuplicateRowActionId {
+                field_id: row.field_id().clone(),
+                action_id: action.action_id().clone(),
+            });
+        }
+    }
+
+    validate_field_choices(row.field_id(), row.kind(), row.value(), row.choices())?;
+
+    if let Some(field) = row.detail_field() {
+        if !row.is_field() {
+            return Err(SettingsWindowError::MissingField(field.field_id().clone()));
+        }
+        if field.field_id().as_str().is_empty() {
+            return Err(SettingsWindowError::EmptyFieldId);
+        }
+        if !field_ids.insert(field.field_id().clone()) {
+            return Err(SettingsWindowError::DuplicateFieldId(
+                field.field_id().clone(),
+            ));
+        }
+        validate_field_choices(
+            field.field_id(),
+            field.kind(),
+            field.value(),
+            field.choices(),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_field_choices(
+    field_id: &SettingsFieldId,
+    kind: row::SettingsFieldKind,
+    value: &str,
+    choices: &[row::SettingsChoiceOption],
+) -> Result<(), SettingsWindowError> {
+    if kind == row::SettingsFieldKind::Choice {
+        if choices.is_empty() {
+            return Err(SettingsWindowError::EmptyChoiceOptions {
+                field_id: field_id.clone(),
+            });
+        }
+
+        let mut choice_values = HashSet::new();
+        let mut selected_value_exists = false;
+        for choice in choices {
+            if choice.value().is_empty() {
+                return Err(SettingsWindowError::EmptyChoiceOptionValue {
+                    field_id: field_id.clone(),
+                });
+            }
+            if !choice_values.insert(choice.value().to_string()) {
+                return Err(SettingsWindowError::DuplicateChoiceOptionValue {
+                    field_id: field_id.clone(),
+                    value: choice.value().to_string(),
+                });
+            }
+            if choice.value() == value {
+                selected_value_exists = true;
+            }
+        }
+        if !selected_value_exists {
+            return Err(SettingsWindowError::MissingChoiceValue {
+                field_id: field_id.clone(),
+                value: value.to_string(),
+            });
+        }
+    } else if !choices.is_empty() {
+        return Err(SettingsWindowError::MissingChoiceValue {
+            field_id: field_id.clone(),
+            value: value.to_string(),
+        });
     }
 
     Ok(())

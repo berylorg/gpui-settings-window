@@ -2,6 +2,9 @@ use gpui_text_input::TextInputOptions;
 
 use crate::{RgbColor, SettingsWindowTheme};
 
+const DEFAULT_WINDOW_WIDTH: f32 = 800.0;
+const DEFAULT_WINDOW_HEIGHT: f32 = 520.0;
+
 /// Options used when creating a settings window.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingsWindowOptions {
@@ -20,10 +23,10 @@ impl SettingsWindowOptions {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            width: 1200.0,
-            height: 860.0,
-            min_width: 720.0,
-            min_height: 520.0,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+            min_width: DEFAULT_WINDOW_WIDTH,
+            min_height: DEFAULT_WINDOW_HEIGHT,
             saved_color_swatches: Vec::new(),
             visual_theme: SettingsWindowTheme::default(),
             text_input_undo_byte_limit: TextInputOptions::DEFAULT_UNDO_BYTE_LIMIT,

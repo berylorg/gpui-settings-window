@@ -26,6 +26,14 @@ impl SettingsPanel {
             .managed(Self::scrollbar_update_callback(entity))
     }
 
+    pub(in crate::panel) fn split_scrollbar_visibility_policy(
+        &self,
+        entity: Entity<Self>,
+    ) -> ScrollbarVisibilityPolicy {
+        self.split_scrollbar_visibility
+            .managed(Self::scrollbar_update_callback(entity))
+    }
+
     pub(in crate::panel) fn note_content_scrollbar_activity(
         &mut self,
         window: &mut Window,
@@ -34,7 +42,6 @@ impl SettingsPanel {
         let on_update = Self::scrollbar_update_callback(cx.entity());
         self.content_scrollbar_visibility
             .record_viewport_activity(window, cx, on_update);
-        cx.notify();
     }
 
     pub(in crate::panel) fn note_navigation_scrollbar_activity(
@@ -45,7 +52,16 @@ impl SettingsPanel {
         let on_update = Self::scrollbar_update_callback(cx.entity());
         self.navigation_scrollbar_visibility
             .record_viewport_activity(window, cx, on_update);
-        cx.notify();
+    }
+
+    pub(in crate::panel) fn note_split_scrollbar_activity(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let on_update = Self::scrollbar_update_callback(cx.entity());
+        self.split_scrollbar_visibility
+            .record_viewport_activity(window, cx, on_update);
     }
 
     pub(in crate::panel) fn note_content_scrollbar_motion(
@@ -82,5 +98,23 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.note_navigation_scrollbar_activity(window, cx);
+    }
+
+    pub(in crate::panel) fn note_split_scrollbar_motion(
+        &mut self,
+        _: &gpui::MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_split_scrollbar_activity(window, cx);
+    }
+
+    pub(in crate::panel) fn note_split_scrollbar_scroll(
+        &mut self,
+        _: &gpui::ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.note_split_scrollbar_activity(window, cx);
     }
 }

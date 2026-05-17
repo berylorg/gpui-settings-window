@@ -336,7 +336,10 @@ impl SettingsFieldInput {
 fn text_input_options(kind: SettingsFieldKind, undo_byte_limit: usize) -> TextInputOptions {
     match kind {
         SettingsFieldKind::MultilineText => TextInputOptions::multiline(),
-        SettingsFieldKind::Text | SettingsFieldKind::Color => TextInputOptions::single_line(),
+        SettingsFieldKind::Text
+        | SettingsFieldKind::Number
+        | SettingsFieldKind::Color
+        | SettingsFieldKind::Choice => TextInputOptions::single_line(),
     }
     .with_undo_byte_limit(undo_byte_limit)
 }
@@ -344,7 +347,10 @@ fn text_input_options(kind: SettingsFieldKind, undo_byte_limit: usize) -> TextIn
 fn text_input_enter_key(kind: SettingsFieldKind) -> TextInputEnterKey {
     match kind {
         SettingsFieldKind::MultilineText => TextInputEnterKey::InsertNewline,
-        SettingsFieldKind::Text | SettingsFieldKind::Color => TextInputEnterKey::Propagate,
+        SettingsFieldKind::Text
+        | SettingsFieldKind::Number
+        | SettingsFieldKind::Color
+        | SettingsFieldKind::Choice => TextInputEnterKey::Propagate,
     }
 }
 
