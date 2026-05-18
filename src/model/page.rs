@@ -1,4 +1,43 @@
-use super::{SettingsPageAction, SettingsPageId, SettingsPageSplit, SettingsRow};
+use super::{
+    SettingsPageAction, SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplit, SettingsRow,
+};
+
+/// App-neutral page body layout selected by the host page model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPageBodyLayout {
+    /// The page body renders the page's detail rows as one scrollable surface.
+    DetailRows,
+    /// The page body reserves a leading custom region stacked above detail rows.
+    StackedCustom,
+}
+
+/// App-neutral descriptor for a page-owned custom body region.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsPageCustomBody {
+    body_id: SettingsPageCustomBodyId,
+    height_px: u16,
+}
+
+impl SettingsPageCustomBody {
+    /// Creates a custom page body descriptor with a stable identifier and
+    /// fixed logical-pixel height.
+    pub fn new(body_id: impl Into<SettingsPageCustomBodyId>, height_px: u16) -> Self {
+        Self {
+            body_id: body_id.into(),
+            height_px,
+        }
+    }
+
+    /// Returns the stable custom body identifier.
+    pub fn body_id(&self) -> &SettingsPageCustomBodyId {
+        &self.body_id
+    }
+
+    /// Returns the fixed logical-pixel height reserved for this body region.
+    pub fn height_px(&self) -> u16 {
+        self.height_px
+    }
+}
 
 /// One breadcrumb segment for a right-pane page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +84,7 @@ pub struct SettingsPage {
     rows: Vec<SettingsRow>,
     actions: Vec<SettingsPageAction>,
     local_split: Option<SettingsPageSplit>,
+    stacked_custom_body: Option<SettingsPageCustomBody>,
     modified: bool,
 }
 
@@ -59,6 +99,7 @@ impl SettingsPage {
             rows: Vec::new(),
             actions: Vec::new(),
             local_split: None,
+            stacked_custom_body: None,
             modified: false,
         }
     }
@@ -78,6 +119,13 @@ impl SettingsPage {
     /// Returns a copy of this page with a page-local leading split list.
     pub fn with_local_split(mut self, split: SettingsPageSplit) -> Self {
         self.local_split = Some(split);
+        self
+    }
+
+    /// Returns a copy of this page with a stacked custom body region above the
+    /// ordinary detail rows.
+    pub fn with_stacked_custom_body(mut self, body: SettingsPageCustomBody) -> Self {
+        self.stacked_custom_body = Some(body);
         self
     }
 
@@ -136,6 +184,23 @@ impl SettingsPage {
     /// Returns the optional page-local leading split list.
     pub fn local_split(&self) -> Option<&SettingsPageSplit> {
         self.local_split.as_ref()
+    }
+
+    /// Returns the stacked custom body descriptor when this page has one.
+    pub fn stacked_custom_body(&self) -> Option<&SettingsPageCustomBody> {
+        if self.local_split.is_some() {
+            None
+        } else {
+            self.stacked_custom_body.as_ref()
+        }
+    }
+
+    /// Returns the app-neutral body layout requested by the host page model.
+    pub fn body_layout(&self) -> SettingsPageBodyLayout {
+        match self.stacked_custom_body() {
+            Some(_) => SettingsPageBodyLayout::StackedCustom,
+            None => SettingsPageBodyLayout::DetailRows,
+        }
     }
 
     /// Returns the host-supplied modified presentation state.

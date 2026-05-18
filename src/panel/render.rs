@@ -202,7 +202,45 @@ impl SettingsPanel {
                 .into_any_element();
         }
 
+        if let Some(custom_body) = page.stacked_custom_body().cloned() {
+            return div()
+                .id("settings-page-stacked-custom-body")
+                .flex_1()
+                .min_w_0()
+                .min_h(px(0.0))
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(self.render_stacked_custom_body_region(custom_body))
+                .child(self.render_detail_rows_scroll(DetailRowsLayout::Standard, cx))
+                .into_any_element();
+        }
+
         self.render_detail_rows_scroll(DetailRowsLayout::Standard, cx)
+    }
+
+    fn render_stacked_custom_body_region(
+        &self,
+        custom_body: crate::SettingsPageCustomBody,
+    ) -> AnyElement {
+        let body_id = custom_body.body_id().clone();
+        let child = self
+            .page_body_renderer
+            .as_ref()
+            .and_then(|renderer| renderer.render(&body_id));
+
+        div()
+            .id(SharedString::from(format!(
+                "settings-page-stacked-custom-region-{}",
+                element_id_suffix(body_id.as_str())
+            )))
+            .flex_none()
+            .h(px(f32::from(custom_body.height_px())))
+            .min_w_0()
+            .overflow_hidden()
+            .children(child)
+            .into_any_element()
     }
 
     fn render_detail_rows_scroll(

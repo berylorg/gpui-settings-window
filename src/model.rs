@@ -14,10 +14,12 @@ pub use actions::{
 };
 pub(crate) use element_id::element_id_suffix;
 pub use ids::{
-    SettingsFieldId, SettingsPageActionId, SettingsPageId, SettingsPageSplitItemId,
-    SettingsRowActionId, SettingsSectionId,
+    SettingsFieldId, SettingsPageActionId, SettingsPageCustomBodyId, SettingsPageId,
+    SettingsPageSplitItemId, SettingsRowActionId, SettingsSectionId,
 };
-pub use page::{SettingsBreadcrumbSegment, SettingsPage};
+pub use page::{
+    SettingsBreadcrumbSegment, SettingsPage, SettingsPageBodyLayout, SettingsPageCustomBody,
+};
 pub use row::{
     SettingsChoiceOption, SettingsFieldKind, SettingsRow, SettingsRowDetailField, SettingsRowKind,
 };
@@ -508,6 +510,11 @@ pub enum SettingsWindowError {
         /// Page identifier for the page that owns the invalid item.
         page_id: SettingsPageId,
     },
+    /// A page custom body has an empty identifier.
+    EmptyPageCustomBodyId {
+        /// Page that owns the invalid custom body.
+        page_id: SettingsPageId,
+    },
     /// More than one page-local split-list item uses the same identifier on one page.
     DuplicatePageSplitItemId {
         /// Page identifier for the page that owns the duplicate item.
@@ -634,6 +641,12 @@ impl fmt::Display for SettingsWindowError {
                 write!(
                     formatter,
                     "settings page split item id is empty for `{page_id}`"
+                )
+            }
+            Self::EmptyPageCustomBodyId { page_id } => {
+                write!(
+                    formatter,
+                    "settings page custom body id is empty for `{page_id}`"
                 )
             }
             Self::DuplicatePageSplitItemId { page_id, item_id } => {
@@ -818,6 +831,14 @@ fn validate_page(
 
         if selected_count > 1 {
             return Err(SettingsWindowError::MultiplePageSplitItemsSelected {
+                page_id: page.page_id().clone(),
+            });
+        }
+    }
+
+    if let Some(body) = page.stacked_custom_body() {
+        if body.body_id().as_str().is_empty() {
+            return Err(SettingsWindowError::EmptyPageCustomBodyId {
                 page_id: page.page_id().clone(),
             });
         }

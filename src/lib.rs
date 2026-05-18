@@ -76,13 +76,14 @@ pub use diagnostics::{
 pub use model::{
     MAX_PAGE_DETAIL_ROWS, SettingsActionAvailability, SettingsBreadcrumbSegment,
     SettingsChoiceOption, SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
-    SettingsPageActionId, SettingsPageActionPriority, SettingsPageId, SettingsPageSplit,
+    SettingsPageActionId, SettingsPageActionPriority, SettingsPageBodyLayout,
+    SettingsPageCustomBody, SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplit,
     SettingsPageSplitItem, SettingsPageSplitItemId, SettingsPageSplitItemPreviewStyle, SettingsRow,
     SettingsRowAction, SettingsRowActionId, SettingsRowDetailField, SettingsRowKind,
     SettingsSection, SettingsSectionId, SettingsWindowError, SettingsWindowEvent,
     SettingsWindowModel,
 };
-pub use options::SettingsWindowOptions;
+pub use options::{SettingsPageBodyRenderer, SettingsWindowOptions};
 pub use panel::SettingsPanel;
 pub use theme::{
     SettingsButtonStateTheme, SettingsButtonTheme, SettingsInputTheme, SettingsSurfaceTheme,

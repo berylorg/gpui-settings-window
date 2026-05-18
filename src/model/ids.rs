@@ -57,6 +57,12 @@ stable_id!(
 );
 
 stable_id!(
+    /// Stable identifier for a page-owned custom body region.
+    SettingsPageCustomBodyId,
+    "settings page custom body"
+);
+
+stable_id!(
     /// Stable identifier for a settings row or editable field.
     SettingsFieldId,
     "settings field"

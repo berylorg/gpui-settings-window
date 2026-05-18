@@ -1,3 +1,4 @@
+use gpui::IntoElement;
 use gpui_settings_window::{
     MAX_PAGE_DETAIL_ROWS, RgbColor, SettingsBreadcrumbSegment, SettingsChoiceOption,
     SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
@@ -415,6 +416,47 @@ fn pages_may_carry_page_local_split_items_without_changing_detail_rows() {
 }
 
 #[test]
+fn pages_may_request_stacked_custom_body_without_changing_detail_rows() {
+    let model = SettingsWindowModel::new(vec![
+        SettingsSection::new("appearance", "Appearance").with_root_page(
+            SettingsPage::new("appearance", "Appearance")
+                .with_stacked_custom_body(gpui_settings_window::SettingsPageCustomBody::new(
+                    "theme_navigator",
+                    144,
+                ))
+                .with_row(SettingsRow::new(
+                    "font_size",
+                    "Font size",
+                    "14",
+                    SettingsFieldKind::Number,
+                )),
+        ),
+    ])
+    .expect("model should validate");
+    let page = model.selected_page();
+
+    assert_eq!(
+        page.body_layout(),
+        gpui_settings_window::SettingsPageBodyLayout::StackedCustom
+    );
+    assert_eq!(
+        page.stacked_custom_body()
+            .expect("page should carry custom body metadata")
+            .body_id()
+            .as_str(),
+        "theme_navigator"
+    );
+    assert_eq!(
+        page.stacked_custom_body()
+            .expect("page should carry custom body metadata")
+            .height_px(),
+        144
+    );
+    assert!(page.local_split().is_none());
+    assert_eq!(model.selected_rows()[0].field_id().as_str(), "font_size");
+}
+
+#[test]
 fn rejects_duplicate_page_local_split_item_ids_per_page() {
     let result = SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
@@ -762,6 +804,30 @@ fn page_local_split_rendering_stays_inside_selected_page_body() {
     assert!(!render_source.contains(
         "local_split.items().iter().cloned().map(|item| self.render_page_local_split_item"
     ));
+}
+
+#[test]
+fn stacked_custom_body_preserves_standard_detail_row_scroll_surface() {
+    let render_source = include_str!("../src/panel/render.rs");
+
+    assert!(render_source.contains("settings-page-stacked-custom-body"));
+    assert!(render_source.contains("settings-page-stacked-custom-region"));
+    assert!(render_source.contains("page.stacked_custom_body().cloned()"));
+    assert!(render_source.contains("render_stacked_custom_body_region"));
+    assert!(render_source.contains("page_body_renderer"));
+    assert!(render_source.contains("renderer.render(&body_id)"));
+    assert!(render_source.contains("custom_body.height_px()"));
+    assert!(render_source.contains("render_detail_rows_scroll(DetailRowsLayout::Standard"));
+}
+
+#[test]
+fn window_options_carry_page_body_renderer() {
+    let renderer = gpui_settings_window::SettingsPageBodyRenderer::new(|_| {
+        Some(gpui::div().into_any_element())
+    });
+    let options = SettingsWindowOptions::default().with_page_body_renderer(renderer);
+
+    assert!(options.page_body_renderer().is_some());
 }
 
 #[test]

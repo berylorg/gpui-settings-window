@@ -1,9 +1,41 @@
+use std::{fmt, sync::Arc};
+
+use gpui::AnyElement;
 use gpui_text_input::TextInputOptions;
 
-use crate::{RgbColor, SettingsWindowTheme};
+use crate::{RgbColor, SettingsPageCustomBodyId, SettingsWindowTheme};
 
 const DEFAULT_WINDOW_WIDTH: f32 = 800.0;
 const DEFAULT_WINDOW_HEIGHT: f32 = 520.0;
+
+/// App-neutral renderer for host-owned page custom body regions.
+#[derive(Clone)]
+pub struct SettingsPageBodyRenderer(Arc<dyn Fn(&SettingsPageCustomBodyId) -> Option<AnyElement>>);
+
+impl SettingsPageBodyRenderer {
+    /// Creates a page body renderer from a host callback.
+    pub fn new(render: impl Fn(&SettingsPageCustomBodyId) -> Option<AnyElement> + 'static) -> Self {
+        Self(Arc::new(render))
+    }
+
+    pub(crate) fn render(&self, body_id: &SettingsPageCustomBodyId) -> Option<AnyElement> {
+        (self.0)(body_id)
+    }
+}
+
+impl fmt::Debug for SettingsPageBodyRenderer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SettingsPageBodyRenderer")
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for SettingsPageBodyRenderer {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 /// Options used when creating a settings window.
 #[derive(Debug, Clone, PartialEq)]
@@ -16,6 +48,7 @@ pub struct SettingsWindowOptions {
     saved_color_swatches: Vec<RgbColor>,
     visual_theme: SettingsWindowTheme,
     text_input_undo_byte_limit: usize,
+    page_body_renderer: Option<SettingsPageBodyRenderer>,
 }
 
 impl SettingsWindowOptions {
@@ -30,6 +63,7 @@ impl SettingsWindowOptions {
             saved_color_swatches: Vec::new(),
             visual_theme: SettingsWindowTheme::default(),
             text_input_undo_byte_limit: TextInputOptions::DEFAULT_UNDO_BYTE_LIMIT,
+            page_body_renderer: None,
         }
     }
 
@@ -65,6 +99,12 @@ impl SettingsWindowOptions {
         self
     }
 
+    /// Returns a copy with a host renderer for page-owned custom body regions.
+    pub fn with_page_body_renderer(mut self, renderer: SettingsPageBodyRenderer) -> Self {
+        self.page_body_renderer = Some(renderer);
+        self
+    }
+
     /// Returns the window title.
     pub fn title(&self) -> &str {
         &self.title
@@ -93,6 +133,11 @@ impl SettingsWindowOptions {
     /// Returns the per-stack text-input undo byte limit.
     pub fn text_input_undo_byte_limit(&self) -> usize {
         self.text_input_undo_byte_limit
+    }
+
+    /// Returns the optional host renderer for page custom body regions.
+    pub fn page_body_renderer(&self) -> Option<&SettingsPageBodyRenderer> {
+        self.page_body_renderer.as_ref()
     }
 }
 

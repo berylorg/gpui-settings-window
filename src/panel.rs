@@ -24,7 +24,7 @@ use crate::model::{
     SettingsWindowEvent, SettingsWindowModel, element_id_suffix,
 };
 use crate::{
-    RgbColor, SettingsWindowDiagnostics, SettingsWindowOptions,
+    RgbColor, SettingsPageBodyRenderer, SettingsWindowDiagnostics, SettingsWindowOptions,
     SettingsWindowPerformanceDiagnostics, SettingsWindowRangeDiagnostics,
     SettingsWindowRowSurfaceDiagnostics, SettingsWindowTheme,
 };
@@ -106,6 +106,7 @@ pub struct SettingsPanel {
     split_scrollbar_visibility: ScrollbarVisibilityState,
     font_size: f32,
     visual_theme: SettingsWindowTheme,
+    page_body_renderer: Option<SettingsPageBodyRenderer>,
     saved_color_swatches: Vec<RgbColor>,
     text_input_undo_byte_limit: usize,
     latest_known_color_values: HashMap<SettingsFieldId, RgbColor>,
@@ -212,6 +213,7 @@ impl SettingsPanel {
             split_scrollbar_visibility: ScrollbarVisibilityState::default(),
             font_size: DEFAULT_FONT_SIZE,
             visual_theme: options.visual_theme().clone(),
+            page_body_renderer: options.page_body_renderer().cloned(),
             saved_color_swatches: options.saved_color_swatches().to_vec(),
             text_input_undo_byte_limit: options.text_input_undo_byte_limit(),
             latest_known_color_values: HashMap::new(),
@@ -328,10 +330,12 @@ impl SettingsPanel {
     ) {
         let started = Instant::now();
         let next_theme = options.visual_theme().clone();
+        let next_page_body_renderer = options.page_body_renderer().cloned();
         let next_swatches = options.saved_color_swatches().to_vec();
         let next_text_input_undo_byte_limit = options.text_input_undo_byte_limit();
 
         let theme_changed = self.visual_theme != next_theme;
+        let page_body_renderer_changed = self.page_body_renderer != next_page_body_renderer;
         let swatches_changed = self.saved_color_swatches != next_swatches;
         let text_input_undo_byte_limit_changed =
             self.text_input_undo_byte_limit != next_text_input_undo_byte_limit;
@@ -340,6 +344,9 @@ impl SettingsPanel {
             self.visual_theme = next_theme;
             self.sync_input_visual_themes(cx);
         }
+        if page_body_renderer_changed {
+            self.page_body_renderer = next_page_body_renderer;
+        }
         if swatches_changed {
             self.saved_color_swatches = next_swatches;
         }
@@ -347,7 +354,11 @@ impl SettingsPanel {
             self.text_input_undo_byte_limit = next_text_input_undo_byte_limit;
             self.sync_input_retention_options(window, cx);
         }
-        if theme_changed || swatches_changed || text_input_undo_byte_limit_changed {
+        if theme_changed
+            || page_body_renderer_changed
+            || swatches_changed
+            || text_input_undo_byte_limit_changed
+        {
             cx.notify();
         }
         self.record_option_sync_diagnostics(started.elapsed());
