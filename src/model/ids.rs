@@ -75,6 +75,12 @@ stable_id!(
 );
 
 stable_id!(
+    /// Stable identifier for one saved color swatch.
+    SettingsSavedColorSwatchId,
+    "saved color swatch"
+);
+
+stable_id!(
     /// Stable identifier for an action attached to a settings page.
     SettingsPageActionId,
     "settings page action"

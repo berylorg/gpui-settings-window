@@ -217,6 +217,10 @@ impl SettingsWindowView {
         })
         .detach();
 
+        if !visible {
+            settings_panel.update(cx, |panel, cx| panel.unmount_scrollbars(window, cx));
+        }
+
         let view = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             view.update(cx, |view, cx| {
@@ -309,10 +313,13 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let was_visible = self.visible;
         self.sync_model(model, window, cx);
-        let _ = self
-            .settings_panel
-            .update(cx, |panel, cx| panel.reset_scrollbar_visibility(cx));
+        if !was_visible {
+            let _ = self
+                .settings_panel
+                .update(cx, |panel, cx| panel.mount_scrollbars(cx));
+        }
         self.visible = true;
         show_native_settings_window(window);
         if focus_requested {
@@ -325,7 +332,7 @@ impl SettingsWindowView {
         self.close_transient_popups(cx);
         let _ = self
             .settings_panel
-            .update(cx, |panel, cx| panel.reset_scrollbar_visibility(cx));
+            .update(cx, |panel, cx| panel.unmount_scrollbars(window, cx));
         self.visible = false;
         hide_native_settings_window(window);
         cx.notify();

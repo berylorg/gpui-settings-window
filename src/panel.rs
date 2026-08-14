@@ -9,7 +9,9 @@ use gpui::{
     ParentElement, Pixels, Render, ScrollHandle, SharedString, Window, actions, div, point,
     prelude::*, px, rgb,
 };
-use gpui_scrollbar::ScrollbarVisibilityState;
+use gpui_scrollbar::{
+    ScrollbarMountGeneration, ScrollbarOwnerId, ScrollbarOwnerKey, ScrollbarState,
+};
 
 use crate::color_picker::{
     ColorComponentInput, ColorPickerChannelField, ensure_color_component_input_bindings,
@@ -20,12 +22,12 @@ use crate::input::{
 };
 use crate::model::{
     SettingsFieldId, SettingsFieldKind, SettingsPageActionId, SettingsPageId,
-    SettingsPageSplitItemId, SettingsRow, SettingsRowActionId, SettingsSectionId,
-    SettingsWindowEvent, SettingsWindowModel, element_id_suffix,
+    SettingsPageSplitItemId, SettingsRow, SettingsRowActionId, SettingsSavedColorSwatchId,
+    SettingsSectionId, SettingsWindowEvent, SettingsWindowModel, element_id_suffix,
 };
 use crate::{
-    RgbColor, SettingsPageBodyRenderer, SettingsWindowDiagnostics, SettingsWindowOptions,
-    SettingsWindowPerformanceDiagnostics, SettingsWindowRangeDiagnostics,
+    RgbColor, SettingsPageBodyRenderer, SettingsSavedColorSwatch, SettingsWindowDiagnostics,
+    SettingsWindowOptions, SettingsWindowPerformanceDiagnostics, SettingsWindowRangeDiagnostics,
     SettingsWindowRowSurfaceDiagnostics, SettingsWindowTheme,
 };
 
@@ -44,12 +46,27 @@ const PAGE_LOCAL_SPLIT_ITEM_HEIGHT: f32 = 88.0;
 const PAGE_LOCAL_SPLIT_ITEM_GAP: f32 = 4.0;
 const PAGE_LOCAL_SPLIT_OVERSCAN_ROWS: usize = 3;
 const PAGE_LOCAL_SPLIT_FALLBACK_VIEWPORT_HEIGHT: f32 = 360.0;
+const CONTENT_SCROLLBAR_OWNER_ID: u64 = 1;
+const NAVIGATION_SCROLLBAR_OWNER_ID: u64 = 2;
+const SPLIT_SCROLLBAR_OWNER_ID: u64 = 3;
 
 fn theme_color(color: RgbColor) -> gpui::Rgba {
     rgb(color.packed_rgb())
 }
 
-actions!(gpui_settings_window_panel, [Cancel, FocusNext, FocusPrev]);
+actions!(
+    gpui_settings_window_panel,
+    [
+        Cancel,
+        FocusNext,
+        FocusPrev,
+        SavedSwatchLeft,
+        SavedSwatchRight,
+        SavedSwatchUp,
+        SavedSwatchDown,
+        ApplySavedSwatch,
+    ]
+);
 
 struct ColorPickerChannelSlot {
     field: ColorPickerChannelField,
@@ -98,16 +115,24 @@ pub struct SettingsPanel {
     model: SettingsWindowModel,
     fields: HashMap<SettingsFieldId, Entity<SettingsFieldInput>>,
     focus_handle: FocusHandle,
+    saved_color_grid_focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     navigation_scroll_handle: ScrollHandle,
     split_scroll_handle: ScrollHandle,
-    content_scrollbar_visibility: ScrollbarVisibilityState,
-    navigation_scrollbar_visibility: ScrollbarVisibilityState,
-    split_scrollbar_visibility: ScrollbarVisibilityState,
+    content_scrollbar: ScrollbarState,
+    navigation_scrollbar: ScrollbarState,
+    split_scrollbar: ScrollbarState,
+    content_scrollbar_generation: u64,
+    navigation_scrollbar_generation: u64,
+    split_scrollbar_generation: u64,
+    scrollbars_mounted: bool,
+    split_scrollbar_consumer: Option<SettingsPageId>,
     font_size: f32,
     visual_theme: SettingsWindowTheme,
     page_body_renderer: Option<SettingsPageBodyRenderer>,
-    saved_color_swatches: Vec<RgbColor>,
+    saved_color_swatches: Vec<SettingsSavedColorSwatch>,
+    color_picker_focused_swatch: Option<SettingsSavedColorSwatchId>,
+    color_picker_selected_swatch: Option<SettingsSavedColorSwatchId>,
     text_input_undo_byte_limit: usize,
     latest_known_color_values: HashMap<SettingsFieldId, RgbColor>,
     diagnostics: RefCell<SettingsPanelDiagnosticsState>,
@@ -180,16 +205,16 @@ impl SettingsPanel {
     /// Creates a settings panel from a presentation model and saved color swatches.
     pub fn new_with_saved_color_swatches(
         model: SettingsWindowModel,
-        saved_color_swatches: Vec<RgbColor>,
+        saved_color_swatches: Vec<SettingsSavedColorSwatch>,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Self {
-        Self::new_with_options(
+    ) -> Result<Self, crate::SettingsWindowOptionsError> {
+        Ok(Self::new_with_options(
             model,
-            SettingsWindowOptions::default().with_saved_color_swatches(saved_color_swatches),
+            SettingsWindowOptions::default().with_saved_color_swatches(saved_color_swatches)?,
             window,
             cx,
-        )
+        ))
     }
 
     /// Creates a settings panel from a presentation model and visual options.
@@ -205,16 +230,24 @@ impl SettingsPanel {
             model,
             fields: HashMap::new(),
             focus_handle: cx.focus_handle(),
+            saved_color_grid_focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             navigation_scroll_handle: ScrollHandle::new(),
             split_scroll_handle: ScrollHandle::new(),
-            content_scrollbar_visibility: ScrollbarVisibilityState::default(),
-            navigation_scrollbar_visibility: ScrollbarVisibilityState::default(),
-            split_scrollbar_visibility: ScrollbarVisibilityState::default(),
+            content_scrollbar: Self::new_scrollbar(CONTENT_SCROLLBAR_OWNER_ID, 1),
+            navigation_scrollbar: Self::new_scrollbar(NAVIGATION_SCROLLBAR_OWNER_ID, 1),
+            split_scrollbar: Self::new_scrollbar(SPLIT_SCROLLBAR_OWNER_ID, 1),
+            content_scrollbar_generation: 1,
+            navigation_scrollbar_generation: 1,
+            split_scrollbar_generation: 1,
+            scrollbars_mounted: true,
+            split_scrollbar_consumer: None,
             font_size: DEFAULT_FONT_SIZE,
             visual_theme: options.visual_theme().clone(),
             page_body_renderer: options.page_body_renderer().cloned(),
             saved_color_swatches: options.saved_color_swatches().to_vec(),
+            color_picker_focused_swatch: None,
+            color_picker_selected_swatch: None,
             text_input_undo_byte_limit: options.text_input_undo_byte_limit(),
             latest_known_color_values: HashMap::new(),
             diagnostics: RefCell::new(SettingsPanelDiagnosticsState::default()),
@@ -234,7 +267,11 @@ impl SettingsPanel {
         };
         panel.sync_latest_known_color_values();
         panel.rebuild_fields(window, cx);
-        panel.sync_split_scroll_for_model(None, None);
+        panel.sync_split_scroll_for_model(None, None, window, cx);
+        cx.on_release_in(window, |panel, window, cx| {
+            panel.teardown_scrollbars(window, cx);
+        })
+        .detach();
         panel
     }
 
@@ -258,7 +295,7 @@ impl SettingsPanel {
             self.sync_choice_popup();
             self.sync_color_picker(cx);
         }
-        self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection);
+        self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection, window, cx);
 
         if selected_page_changed {
             self.reset_selected_page_view_state(window, cx);
@@ -348,6 +385,7 @@ impl SettingsPanel {
             self.page_body_renderer = next_page_body_renderer;
         }
         if swatches_changed {
+            self.reconcile_color_picker_swatch_focus(&next_swatches);
             self.saved_color_swatches = next_swatches;
         }
         if text_input_undo_byte_limit_changed {
@@ -388,11 +426,129 @@ impl SettingsPanel {
         true
     }
 
-    pub(crate) fn reset_scrollbar_visibility(&mut self, cx: &mut Context<Self>) {
-        self.content_scrollbar_visibility = ScrollbarVisibilityState::default();
-        self.navigation_scrollbar_visibility = ScrollbarVisibilityState::default();
-        self.split_scrollbar_visibility = ScrollbarVisibilityState::default();
+    fn reconcile_color_picker_swatch_focus(&mut self, next: &[SettingsSavedColorSwatch]) {
+        if let Some(focused_id) = self.color_picker_focused_swatch.clone() {
+            let previous_index = self
+                .saved_color_swatches
+                .iter()
+                .position(|swatch| swatch.swatch_id() == &focused_id)
+                .unwrap_or(0);
+            self.color_picker_focused_swatch = next
+                .iter()
+                .find(|swatch| swatch.swatch_id() == &focused_id)
+                .or_else(|| next.get(previous_index.min(next.len().saturating_sub(1))))
+                .map(|swatch| swatch.swatch_id().clone());
+        }
+        self.color_picker_selected_swatch = self
+            .color_picker_selected_swatch
+            .as_ref()
+            .filter(|selected| next.iter().any(|swatch| swatch.swatch_id() == *selected))
+            .cloned();
+    }
+
+    pub(super) fn focus_saved_color_swatch(
+        &mut self,
+        swatch_id: SettingsSavedColorSwatchId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self
+            .saved_color_swatches
+            .iter()
+            .any(|swatch| swatch.swatch_id() == &swatch_id)
+        {
+            self.color_picker_focused_swatch = Some(swatch_id);
+            cx.notify();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn focus_relative_saved_color_swatch(
+        &mut self,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(current) = self.color_picker_focused_swatch.as_ref() else {
+            return false;
+        };
+        let Some(index) = self
+            .saved_color_swatches
+            .iter()
+            .position(|swatch| swatch.swatch_id() == current)
+        else {
+            return false;
+        };
+        let len = self.saved_color_swatches.len();
+        if len == 0 {
+            return false;
+        }
+        let next = if delta.is_negative() {
+            (index + len - 1) % len
+        } else {
+            (index + 1) % len
+        };
+        self.color_picker_focused_swatch =
+            Some(self.saved_color_swatches[next].swatch_id().clone());
         cx.notify();
+        true
+    }
+
+    fn move_saved_color_swatch_focus_by(&mut self, offset: isize, cx: &mut Context<Self>) {
+        let Some(current) = self.color_picker_focused_swatch.as_ref() else {
+            return;
+        };
+        let Some(index) = self
+            .saved_color_swatches
+            .iter()
+            .position(|swatch| swatch.swatch_id() == current)
+        else {
+            return;
+        };
+        let Some(next) = index.checked_add_signed(offset) else {
+            return;
+        };
+        if let Some(swatch) = self.saved_color_swatches.get(next) {
+            self.color_picker_focused_swatch = Some(swatch.swatch_id().clone());
+            cx.notify();
+        }
+    }
+
+    fn saved_swatch_left(&mut self, _: &SavedSwatchLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_saved_color_swatch_focus_by(-1, cx);
+    }
+
+    fn saved_swatch_right(&mut self, _: &SavedSwatchRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_saved_color_swatch_focus_by(1, cx);
+    }
+
+    fn saved_swatch_up(&mut self, _: &SavedSwatchUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_saved_color_swatch_focus_by(-10, cx);
+    }
+
+    fn saved_swatch_down(&mut self, _: &SavedSwatchDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_saved_color_swatch_focus_by(10, cx);
+    }
+
+    fn apply_saved_swatch(&mut self, _: &ApplySavedSwatch, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply_focused_saved_color_swatch(cx);
+    }
+
+    pub(super) fn apply_focused_saved_color_swatch(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(focused) = self.color_picker_focused_swatch.as_ref() else {
+            return false;
+        };
+        let Some(color) = self
+            .saved_color_swatches
+            .iter()
+            .find(|swatch| swatch.swatch_id() == focused)
+            .map(SettingsSavedColorSwatch::color)
+        else {
+            return false;
+        };
+        self.color_picker_selected_swatch = Some(focused.clone());
+        self.apply_color_picker_swatch(color, cx);
+        true
     }
 
     /// Returns the current vertical scroll metrics.
@@ -836,7 +992,6 @@ impl SettingsPanel {
     fn reset_selected_page_view_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.scroll_handle.offset();
         self.scroll_handle.set_offset(point(current.x, px(0.0)));
-        self.content_scrollbar_visibility = ScrollbarVisibilityState::default();
         self.close_transient_popups(cx);
         window.focus(&self.focus_handle);
         self.focus_selected_section_field(window, cx);
@@ -890,6 +1045,7 @@ impl SettingsPanel {
                     .iter()
                     .map(|slot| slot.input.read(cx).tab_focus_handle()),
             );
+            targets.push(self.saved_color_grid_focus_handle.clone());
         }
 
         targets
@@ -911,7 +1067,7 @@ impl SettingsPanel {
         if self.model.select_section(section_id.clone()).is_err() {
             return;
         }
-        self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection);
+        self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection, window, cx);
         self.reset_selected_page_view_state(window, cx);
         cx.emit(SettingsWindowEvent::SectionSelected { section_id });
         cx.notify();
@@ -921,14 +1077,41 @@ impl SettingsPanel {
         &mut self,
         previous_page: Option<SettingsPageId>,
         previous_selection: Option<(SettingsPageId, SettingsPageSplitItemId, usize, usize)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
-        let Some((page_id, item_id, selected_index, item_count)) =
-            selected_page_split_selection(&self.model)
-        else {
+        let next_consumer = self
+            .model
+            .selected_page()
+            .local_split()
+            .map(|_| self.model.selected_page_id().clone());
+        if self.split_scrollbar_consumer != next_consumer {
+            self.unmount_split_scrollbar(window, cx);
+            self.split_scrollbar_consumer = next_consumer.clone();
+        }
+
+        if next_consumer.is_none() {
             let current = self.split_scroll_handle.offset();
             self.split_scroll_handle
                 .set_offset(point(current.x, px(0.0)));
-            self.split_scrollbar_visibility = ScrollbarVisibilityState::default();
+            return;
+        }
+
+        if self.scrollbars_mounted {
+            self.mount_split_scrollbar(cx);
+        }
+
+        let item_count = self
+            .model
+            .selected_page()
+            .local_split()
+            .expect("split consumer requires a selected-page split")
+            .items()
+            .len();
+        let Some((page_id, item_id, selected_index, item_count)) =
+            selected_page_split_selection(&self.model)
+        else {
+            self.clamp_split_scroll_to_item_count(item_count);
             return;
         };
 
@@ -936,7 +1119,6 @@ impl SettingsPanel {
             let current = self.split_scroll_handle.offset();
             self.split_scroll_handle
                 .set_offset(point(current.x, px(0.0)));
-            self.split_scrollbar_visibility = ScrollbarVisibilityState::default();
         }
 
         let selected_item_moved = !matches!(
@@ -1143,6 +1325,24 @@ pub(crate) fn ensure_settings_panel_bindings(cx: &mut App) {
         gpui::KeyBinding::new("escape", Cancel, Some(PANEL_KEY_CONTEXT)),
         gpui::KeyBinding::new("tab", FocusNext, Some(PANEL_KEY_CONTEXT)),
         gpui::KeyBinding::new("shift-tab", FocusPrev, Some(PANEL_KEY_CONTEXT)),
+        gpui::KeyBinding::new("left", SavedSwatchLeft, Some("GpuiSettingsSavedColorGrid")),
+        gpui::KeyBinding::new(
+            "right",
+            SavedSwatchRight,
+            Some("GpuiSettingsSavedColorGrid"),
+        ),
+        gpui::KeyBinding::new("up", SavedSwatchUp, Some("GpuiSettingsSavedColorGrid")),
+        gpui::KeyBinding::new("down", SavedSwatchDown, Some("GpuiSettingsSavedColorGrid")),
+        gpui::KeyBinding::new(
+            "enter",
+            ApplySavedSwatch,
+            Some("GpuiSettingsSavedColorGrid"),
+        ),
+        gpui::KeyBinding::new(
+            "space",
+            ApplySavedSwatch,
+            Some("GpuiSettingsSavedColorGrid"),
+        ),
     ]);
     cx.set_global(SettingsPanelBindingsInstalled);
 }

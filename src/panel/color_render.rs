@@ -1,4 +1,4 @@
-use gpui::{StatefulInteractiveElement, canvas};
+use gpui::canvas;
 
 use super::color_paint::{
     paint_color_picker_lightness_bar, paint_color_picker_main_palette,
@@ -139,13 +139,19 @@ impl SettingsPanel {
                     .child(
                         div()
                             .id("settings-color-picker-saved-swatches")
-                            .overflow_y_scroll()
-                            .max_h(px(COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT))
+                            .h(px(COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT))
                             .flex()
                             .flex_wrap()
                             .gap_2()
-                            .children(self.saved_color_swatches.iter().copied().map(|color| {
-                                self.render_saved_color_picker_swatch(color, selected, cx)
+                            .track_focus(&self.saved_color_grid_focus_handle)
+                            .key_context("GpuiSettingsSavedColorGrid")
+                            .on_action(cx.listener(Self::saved_swatch_left))
+                            .on_action(cx.listener(Self::saved_swatch_right))
+                            .on_action(cx.listener(Self::saved_swatch_up))
+                            .on_action(cx.listener(Self::saved_swatch_down))
+                            .on_action(cx.listener(Self::apply_saved_swatch))
+                            .children(self.saved_color_swatches.iter().map(|swatch| {
+                                self.render_saved_color_picker_swatch(swatch, selected, cx)
                             })),
                     ),
             )
@@ -315,16 +321,19 @@ impl SettingsPanel {
 
     fn render_saved_color_picker_swatch(
         &self,
-        color: RgbColor,
-        selected: Option<RgbColor>,
+        swatch: &crate::SettingsSavedColorSwatch,
+        _selected: Option<RgbColor>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let hex = color.to_hex();
-        let active = selected == Some(color);
+        let color = swatch.color();
+        let active = self.color_picker_selected_swatch.as_ref() == Some(swatch.swatch_id());
+        let focused = self.color_picker_focused_swatch.as_ref() == Some(swatch.swatch_id());
+        let swatch_id = swatch.swatch_id().clone();
 
         div()
             .id(SharedString::from(format!(
-                "settings-color-picker-swatch-{hex}"
+                "settings-color-picker-swatch-{}",
+                element_id_suffix(swatch_id.as_str())
             )))
             .flex_none()
             .size(px(COLOR_PICKER_SAVED_SWATCH_SIZE))
@@ -335,12 +344,30 @@ impl SettingsPanel {
             } else {
                 self.visual_theme.popup.border
             }))
+            .when(focused, |element| {
+                element.shadow(vec![
+                    gpui::BoxShadow {
+                        color: theme_color(self.visual_theme.popup.background).into(),
+                        offset: point(px(0.0), px(0.0)),
+                        blur_radius: px(0.0),
+                        spread_radius: px(1.0),
+                    },
+                    gpui::BoxShadow {
+                        color: theme_color(self.visual_theme.popup.foreground).into(),
+                        offset: point(px(0.0), px(0.0)),
+                        blur_radius: px(0.0),
+                        spread_radius: px(3.0),
+                    },
+                ])
+            })
             .bg(rgb(color.packed_rgb()))
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    this.apply_color_picker_swatch(color, cx);
+                cx.listener(move |this, _, window, cx| {
+                    window.focus(&this.saved_color_grid_focus_handle);
+                    this.focus_saved_color_swatch(swatch_id.clone(), cx);
+                    this.apply_focused_saved_color_swatch(cx);
                 }),
             )
     }

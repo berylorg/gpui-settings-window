@@ -1,3 +1,4 @@
 /ENV.md
 /target/
-/.cargo/config.toml
+/.cargo/local.toml
+/.cargo/local/

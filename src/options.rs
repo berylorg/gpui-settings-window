@@ -3,10 +3,51 @@ use std::{fmt, sync::Arc};
 use gpui::AnyElement;
 use gpui_text_input::TextInputOptions;
 
-use crate::{RgbColor, SettingsPageCustomBodyId, SettingsWindowTheme};
+use crate::{RgbColor, SettingsPageCustomBodyId, SettingsSavedColorSwatchId, SettingsWindowTheme};
 
 const DEFAULT_WINDOW_WIDTH: f32 = 800.0;
 const DEFAULT_WINDOW_HEIGHT: f32 = 520.0;
+/// Maximum saved color swatches rendered by one color picker.
+pub const MAX_SAVED_COLOR_SWATCHES: usize = 30;
+
+/// Invalid settings-window options.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsWindowOptionsError {
+    /// The saved-color grid would exceed its fixed render capacity.
+    TooManySavedColorSwatches {
+        at_least_swatch_count: usize,
+        max_swatch_count: usize,
+    },
+    /// The saved-color collection repeats an identity.
+    DuplicateSavedColorSwatchId(SettingsSavedColorSwatchId),
+}
+
+/// One host-owned saved color entry offered by picker popups.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsSavedColorSwatch {
+    swatch_id: SettingsSavedColorSwatchId,
+    color: RgbColor,
+}
+
+impl SettingsSavedColorSwatch {
+    /// Creates a saved swatch with its stable app-neutral identity.
+    pub fn new(swatch_id: impl Into<SettingsSavedColorSwatchId>, color: RgbColor) -> Self {
+        Self {
+            swatch_id: swatch_id.into(),
+            color,
+        }
+    }
+
+    /// Returns the stable identity.
+    pub fn swatch_id(&self) -> &SettingsSavedColorSwatchId {
+        &self.swatch_id
+    }
+
+    /// Returns the swatch color.
+    pub fn color(&self) -> RgbColor {
+        self.color
+    }
+}
 
 /// App-neutral renderer for host-owned page custom body regions.
 #[derive(Clone)]
@@ -45,7 +86,7 @@ pub struct SettingsWindowOptions {
     height: f32,
     min_width: f32,
     min_height: f32,
-    saved_color_swatches: Vec<RgbColor>,
+    saved_color_swatches: Vec<SettingsSavedColorSwatch>,
     visual_theme: SettingsWindowTheme,
     text_input_undo_byte_limit: usize,
     page_body_renderer: Option<SettingsPageBodyRenderer>,
@@ -82,9 +123,33 @@ impl SettingsWindowOptions {
     }
 
     /// Returns a copy with saved swatches offered by color picker popups.
-    pub fn with_saved_color_swatches(mut self, colors: impl IntoIterator<Item = RgbColor>) -> Self {
-        self.saved_color_swatches = colors.into_iter().collect();
-        self
+    /// Returns options with saved colors, rejecting values above the fixed grid capacity.
+    pub fn with_saved_color_swatches(
+        mut self,
+        swatches: impl IntoIterator<Item = SettingsSavedColorSwatch>,
+    ) -> Result<Self, SettingsWindowOptionsError> {
+        let swatches: Vec<_> = swatches
+            .into_iter()
+            .take(MAX_SAVED_COLOR_SWATCHES + 1)
+            .collect();
+        if swatches.len() > MAX_SAVED_COLOR_SWATCHES {
+            return Err(SettingsWindowOptionsError::TooManySavedColorSwatches {
+                at_least_swatch_count: swatches.len(),
+                max_swatch_count: MAX_SAVED_COLOR_SWATCHES,
+            });
+        }
+        for (index, swatch) in swatches.iter().enumerate() {
+            if swatches[..index]
+                .iter()
+                .any(|existing| existing.swatch_id == swatch.swatch_id)
+            {
+                return Err(SettingsWindowOptionsError::DuplicateSavedColorSwatchId(
+                    swatch.swatch_id.clone(),
+                ));
+            }
+        }
+        self.saved_color_swatches = swatches;
+        Ok(self)
     }
 
     /// Returns a copy with a host-provided app-neutral visual theme.
@@ -121,7 +186,7 @@ impl SettingsWindowOptions {
     }
 
     /// Returns host-provided saved color swatches.
-    pub fn saved_color_swatches(&self) -> &[RgbColor] {
+    pub fn saved_color_swatches(&self) -> &[SettingsSavedColorSwatch] {
         &self.saved_color_swatches
     }
 

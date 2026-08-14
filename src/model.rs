@@ -15,7 +15,7 @@ pub use actions::{
 pub(crate) use element_id::element_id_suffix;
 pub use ids::{
     SettingsFieldId, SettingsPageActionId, SettingsPageCustomBodyId, SettingsPageId,
-    SettingsPageSplitItemId, SettingsRowActionId, SettingsSectionId,
+    SettingsPageSplitItemId, SettingsRowActionId, SettingsSavedColorSwatchId, SettingsSectionId,
 };
 pub use page::{
     SettingsBreadcrumbSegment, SettingsPage, SettingsPageBodyLayout, SettingsPageCustomBody,

@@ -4,7 +4,7 @@ use gpui::{
     deferred,
 };
 use gpui_scrollbar::{
-    Axis, ScrollbarStyle, ScrollbarVisibilityPolicy, render_scroll_handle_scrollbar,
+    Axis, ScrollbarInteraction, ScrollbarStyle, ScrollbarVisibilityPolicy, render_scrollbar,
 };
 use std::ops::Range;
 
@@ -108,11 +108,16 @@ impl SettingsPanel {
                         }),
                     )),
             )
-            .children(self.render_vertical_scrollbar(
-                "settings-sections-scrollbar",
-                &self.navigation_scroll_handle,
-                self.navigation_scrollbar_visibility_policy(cx.entity()),
-            ))
+            .children(self.navigation_scrollbar.current_owner().and_then(|owner| {
+                self.render_vertical_scrollbar(
+                    "settings-sections-scrollbar",
+                    owner,
+                    self.navigation_scrollbar.clone(),
+                    &self.navigation_scroll_handle,
+                    self.navigation_scrollbar_visibility_policy(cx.weak_entity()),
+                    cx,
+                )
+            }))
     }
 
     fn render_section_button(
@@ -274,11 +279,16 @@ impl SettingsPanel {
                         ),
                     ),
             )
-            .children(self.render_vertical_scrollbar(
-                "settings-selected-section-scrollbar",
-                &self.scroll_handle,
-                self.content_scrollbar_visibility_policy(cx.entity()),
-            ))
+            .children(self.content_scrollbar.current_owner().and_then(|owner| {
+                self.render_vertical_scrollbar(
+                    "settings-selected-section-scrollbar",
+                    owner,
+                    self.content_scrollbar.clone(),
+                    &self.scroll_handle,
+                    self.content_scrollbar_visibility_policy(cx.weak_entity()),
+                    cx,
+                )
+            }))
             .into_any_element()
     }
 
@@ -323,11 +333,16 @@ impl SettingsPanel {
                     .track_scroll(&self.split_scroll_handle)
                     .child(div().w_full().children(children)),
             )
-            .children(self.render_vertical_scrollbar(
-                "settings-page-local-split-list-scrollbar",
-                &self.split_scroll_handle,
-                self.split_scrollbar_visibility_policy(cx.entity()),
-            ))
+            .children(self.split_scrollbar.current_owner().and_then(|owner| {
+                self.render_vertical_scrollbar(
+                    "settings-page-local-split-list-scrollbar",
+                    owner,
+                    self.split_scrollbar.clone(),
+                    &self.split_scroll_handle,
+                    self.split_scrollbar_visibility_policy(cx.weak_entity()),
+                    cx,
+                )
+            }))
             .into_any_element()
     }
 
@@ -668,15 +683,27 @@ impl SettingsPanel {
     fn render_vertical_scrollbar(
         &self,
         id: &'static str,
+        owner: gpui_scrollbar::ScrollbarOwnerKey,
+        state: gpui_scrollbar::ScrollbarState,
         scroll_handle: &ScrollHandle,
         visibility: ScrollbarVisibilityPolicy,
+        cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let style = ScrollbarStyle {
             thumb_color: self.visual_theme.panel.muted_foreground.packed_rgb(),
             ..ScrollbarStyle::default()
         };
 
-        render_scroll_handle_scrollbar(id, scroll_handle, Axis::Vertical, style, visibility)
+        let entity = cx.weak_entity();
+        let interaction = ScrollbarInteraction::for_scroll_handle_with_owner_update(
+            owner,
+            scroll_handle.clone(),
+            Axis::Vertical,
+            move |_, _, cx| {
+                let _ = entity.update(cx, |_, cx| cx.notify());
+            },
+        );
+        render_scrollbar(id, state, Axis::Vertical, style, visibility, interaction)
     }
 
     fn render_row(

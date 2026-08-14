@@ -14,7 +14,8 @@ This crate does not own reusable text editor internals such as text storage, cur
 
 This crate does not depend on Beryl, Myrrh, or any other host application crate.
 
-This crate does not extract the color picker into a separate crate yet. The color input and picker live here for now, but their implementation must stay separable enough to move later.
+Providing the color input or color picker as a standalone crate is not a goal. Both are
+settings-window-owned controls.
 
 This crate does not support non-GPUI UI frameworks.
 
@@ -40,7 +41,9 @@ Hiding the settings window closes transient settings-window popups first, so a p
 
 The crate exposes app-neutral settings-window diagnostics for host-owned profiling tools. Diagnostics are content-free and report only stable page/section ids, row-surface counts, bounded visible/rendered ranges, scroll rendering strategy, model-sync timing, option-sync timing, render-tree construction timing, input-sync counts, color-preview lookup counts, and a dominant cost category. Diagnostics must not include setting labels, setting values, file paths, validation text, host theme documents, or other host-owned content.
 
-Host applications own settings values, domain validation, persistence, apply/cancel semantics, page and action availability policy, and any conversion between their domain settings and this crate's presentation model.
+Host applications own settings values, domain validation, persistence, apply/cancel semantics,
+field availability and validity presentation, page and action availability policy, and any
+conversion between their domain settings and this crate's presentation model.
 
 Reusable editor behavior belongs outside this crate. This crate consumes `gpui-text-input` for app-neutral text-input mechanics and maps its text-change callbacks into settings-window events, but it keeps settings-specific commands such as accept, apply, cancel, page navigation, row actions, page actions, and color-picker opening at the settings-window boundary.
 
@@ -48,17 +51,67 @@ Reusable editor behavior belongs outside this crate. This crate consumes `gpui-t
 
 The public model is section-and-page oriented. A settings window contains ordered broad sections for the left navigation. Each section owns one root page and may expose app-neutral subpages rendered in the right pane without creating nested sidebar rows.
 
+Broad section navigation is a statically bounded full-render surface. `MAX_SECTION_ROWS` is a
+public nonvisual limit of 32 section rows; construction or update with more sections returns an
+explicit invalid-model result rather than truncating, partially rendering, or retaining the excess.
+Hosts must represent a growing collection through a page-local paged split list instead of treating
+each member as a broad section.
+
 A page carries a stable page identifier, display title, breadcrumb path metadata, optional back target, ordered rows, and optional page-level actions. Root pages render a single page title. Subpages render breadcrumb text shaped from the page path and a back affordance when the host model supplies a back target.
 
 Rows remain the detail content for a page. Page detail rows are statically bounded to 32 rows per page and the crate full-renders the selected page's detail rows within that bound. Hosts with growing collections must model them as subpages or page-local split lists rather than as an unbounded detail-row sequence. A page may additionally carry an optional page-local leading split list rendered beside those detail rows inside the selected page body. Split-list items carry stable item identifiers, labels, optional subtext, host-supplied selected presentation state, and optional app-neutral preview styling hints such as font family, font size, font weight, foreground color, background color, and border color.
 
+A paged split-list source binds a stable source identity, source generation, source revision,
+logical item count, and fixed per-page item and decoded-byte limits. Each page request carries the
+complete source key, one bounded logical range, and a unique request identity. Each result repeats
+that key and request identity and returns either the exact contiguous fragment for that range or a
+typed failure or cancellation; every returned item carries its stable item identifier and logical
+position. A source never reports a shortened logical total or an oversized page as successful.
+
+The widget accepts a result only while its owning page, complete source key, request identity, and
+requested range are all current. A page change, source rebind, source-generation or revision
+replacement, window hide, or window release cancels affected requests and releases their retained
+pages and request state. A completion for cancelled or superseded work is obsolete and cannot
+change items, selection, focus, popup anchors, scroll geometry, or diagnostics other than a
+content-free stale-result count. Pending, failed, cancelled, and obsolete request outcomes remain
+distinct; none is interpreted as an empty page. A failure retains only already coherent pages from
+the same complete source key and exposes bounded host-supplied unavailable feedback for the missing
+range rather than combining generations or collecting the whole source.
+
 Page-local split lists are selector surfaces with bounded render work. A split list with many items renders only the visible fixed-height row window plus a small overscan region, while preserving total scroll extent, stable item identifiers, selected item presentation, selection events, and valid scroll position across ordinary host model refreshes. When a refreshed model reorders items or changes the item count, the split list reconciles by the selected item's stable identifier and current index: it reveals a selected item whose index moved outside the viewport, preserves already valid scroll positions, and clamps stale offsets to the current item extent.
 
-Rows carry stable identifiers, display labels, optional secondary label-side subtext, optional modified state, string values for field rows, optional validation or status messages, a row kind, and zero or more app-neutral row actions. Field rows own editable presentation values. A field row may also carry one optional secondary detail field with its own stable field identifier, value, kind, modified state, validation message, and choice options. The detail field renders inside the same row surface as the primary field so hosts can model one semantic setting with a compact selector and an optional nested editor without splitting it into multiple unrelated rows. Navigation rows target another page and render a trailing right-facing chevron affordance owned by this crate rather than by host-provided label text. Action-only rows execute a row action without carrying an editable value.
+Rows carry stable identifiers, display labels, optional secondary label-side subtext, optional
+modified state, string values for field rows, optional validation or status messages, a row kind,
+and zero or more app-neutral row actions. Field rows own editable presentation values. Every primary
+or secondary field carries independent host-supplied available or unavailable and valid or invalid
+presentation state. Availability controls whether the field accepts mutation or opens a field
+popup; validity does not implicitly change availability. The host owns the meaning of unavailable
+and invalid state, any associated message, and whether either state affects settings-window
+commands. A field row may also carry one optional secondary detail field with its own stable field
+identifier, value, kind, modified state, availability, validity, validation or status message, and
+choice options. The detail field renders inside the same row surface as the primary field so hosts
+can model one semantic setting with a compact selector and an optional nested editor without
+splitting it into multiple unrelated rows. Navigation rows target another page and render a
+trailing right-facing chevron affordance owned by this crate rather than by host-provided label
+text. Action-only rows execute a row action without carrying an editable value.
 
-Each row action carries a stable action identifier, display label, enabled or disabled presentation state, and optional disabled reason. Disabled actions remain visible when present in the model, do not emit action-request events, and may expose their disabled reason through app-neutral hover or focus feedback.
+Each row action carries a stable action identifier, display label, enabled or disabled presentation
+state, and a localized disabled reason whenever it is disabled. Disabled actions remain visibly and
+stably placed, do not emit action-request events, and expose the closest reason blocking activation
+through app-neutral hover and focus tooltip feedback.
 
-Page-level actions carry stable action identifiers, display labels, visual priority, enabled or disabled presentation state, and optional disabled reason. Page-level actions render in a stable page header or page action area rather than inside the host application's outer chrome.
+Page-level actions carry stable action identifiers, display labels, visual priority, enabled or
+disabled presentation state, and a localized disabled reason whenever they are disabled. Page-level
+actions render in a stable page header or page action area rather than inside the host application's
+outer chrome; a disabled page action remains visible, emits no request, and exposes the closest
+blocking reason through hover and focus tooltip feedback.
+
+The bottom OK, Apply, and Cancel commands each carry an independent host-supplied enabled or
+disabled presentation state and a localized disabled reason whenever it is disabled. A disabled
+command remains visibly and stably placed, emits no request, and exposes the closest blocking reason
+through hover and focus tooltip feedback. These command states are separate from the window-wide reconciliation gate: a
+host may disable OK and Apply for an invalid draft while leaving Cancel, section selection, and page
+navigation enabled.
 
 Text, numeric, and choice fields are settings presentation fields, not domain preferences. The field kind may distinguish single-line text, compact numeric-looking single-line text, multiline text presentation, and app-neutral choice presentation, but the stored presentation value remains a string and host applications decide what that string means. Secondary detail fields follow the same app-neutral field rules and emit the same stable `FieldChanged` events as primary fields.
 
@@ -94,7 +147,9 @@ Right-side controls use type-appropriate stable widths and stay aligned to the r
 
 Action-bearing single-line text rows use one right-aligned control column with the fixed-width text field above the row action cluster. File-picker rows are represented by this generic text-plus-actions shape, so action labels do not add horizontal pressure to the label stack at the supported minimum width.
 
-Color picker popups must fit inside the supported default settings-window height for ordinary rows. Large saved-color sets remain available through a bounded internal saved-colors scroll region rather than making the entire popup exceed the window.
+Color picker popups must fit inside the supported default settings-window height for ordinary rows.
+The saved-color grid is statically bounded to 30 swatches, full-renders that fixed-capacity surface,
+and never introduces an internal saved-color scroll region.
 
 The default settings window size is the supported minimum useful size. Hosts may opt into larger initial sizes, but the default presentation must remain usable at its own minimum width and height.
 
@@ -112,6 +167,18 @@ Modified indicators are presentation state supplied by the host. The crate rende
 
 Validation errors, warning text, disabled reasons, and status text are presentation messages supplied by the host. The crate renders them near the relevant row or action and does not interpret them as domain validation results.
 
+Field availability and validity are separate host-owned presentation inputs. An unavailable field
+does not accept mutation or open its field popup, while an invalid field remains editable when it is
+also available. The crate does not infer field availability from validity, infer validity from a
+message, or automatically gate navigation or window commands from either state.
+
+The host may independently apply one window-wide interaction gate while reconciling an
+application-owned operation. The gate temporarily prevents field mutation, row and page actions,
+section and page navigation, footer command requests, popup opening, and OS-window hide or close
+requests while preserving readable content and coherent host-owned presentation state. It does not
+replace or rewrite the separately supplied field availability, field validity, or OK, Apply, and
+Cancel command states.
+
 Row context actions are app-neutral row actions that the host marks for contextual presentation. The crate may render them inline, in an overflow/context menu, or through another app-neutral affordance according to available space and platform conventions, while preserving stable action identifiers in emitted events.
 
 Action ordering is stable and model-driven. The crate may group page actions, inline row actions, and contextual row actions by presentation role, but it must not reorder actions within the same role.
@@ -128,15 +195,34 @@ If a host does not provide a visual theme, the crate uses its own default app-ne
 
 Color settings are represented as a dedicated field kind.
 
-The compact color field shows a canonical `#rrggbb` text value and a preview swatch. It can expand into the full color picker from the preview area or keyboard activation. While the picker implementation lives in this crate, it must remain internally isolated so it can be extracted into its own crate later.
+The compact color field shows a canonical `#rrggbb` text value and a preview swatch. It can expand
+into the full color picker from the preview area or keyboard activation. This crate owns both the
+compact color input and the in-window picker as settings-specific controls.
 
 Color row rendering uses the currently rendered row or detail-field presentation value to resolve its compact swatch and active picker preview. Invalid color drafts keep showing the latest known valid color for that field when one is available.
+
+The color picker's saved-color collection is a fixed-capacity resident set of at most 30 swatches.
+Each swatch carries a host-supplied stable app-neutral identity and one color; duplicate colors are
+valid and remain distinct by identity. The picker full-renders the supplied swatches in a fixed
+three-row grid. Construction or update with more than 30 swatches returns an explicit
+invalid-options result rather than truncating, paging, scrolling, or partially rendering the
+collection. Keyboard traversal and refresh reconciliation preserve the focused stable identity
+when it remains present and otherwise move focus to the nearest surviving grid position.
 
 ## Text Fields
 
 Text settings are represented as plain string fields.
 
 Single-line and multiline text fields use the same settings row, value, validation-message, focus-order, and event boundary. This crate maps text edits to `FieldChanged` events and leaves validation, normalization beyond editor-level text policy, persistence, and apply behavior to the host application.
+
+For each primary or secondary field backed by a nested text input, including text, numeric,
+multiline, and color fields, the host may supply the app-neutral pre-mutation edit filter accepted by
+`gpui-text-input` and a rejection-feedback callback. The settings row forwards the proposed bounded
+replacement range and inserted UTF-8 text to that filter before mutation and forwards rejection
+feedback with the field's stable identity. A rejected edit is atomic in the nested text input: it
+emits no `FieldChanged` event and does not change text, caret, selection, marked-text state, scroll,
+or undo/redo history. This filter is editor-level input policy, not host domain validation; field
+validity remains a separate host-supplied presentation state.
 
 Multiline text fields reserve ordinary text editing behavior for the field itself. The settings window must expose accept, apply, cancel, and row actions through settings-window controls or app-neutral commands rather than relying on multiline `Enter` as an accept shortcut.
 

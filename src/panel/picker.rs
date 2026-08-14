@@ -79,6 +79,20 @@ impl SettingsPanel {
         };
         let error = self.model.field_error(&field_id).map(str::to_owned);
         self.color_picker_field = Some(field_id.clone());
+        self.color_picker_focused_swatch = self
+            .color_picker_focused_swatch
+            .as_ref()
+            .filter(|focused| {
+                self.saved_color_swatches
+                    .iter()
+                    .any(|swatch| swatch.swatch_id() == *focused)
+            })
+            .cloned()
+            .or_else(|| {
+                self.saved_color_swatches
+                    .first()
+                    .map(|swatch| swatch.swatch_id().clone())
+            });
 
         if self.color_picker_channel_inputs.is_empty() {
             self.color_picker_channel_inputs = self.build_color_picker_channel_inputs(window, cx);
@@ -122,6 +136,8 @@ impl SettingsPanel {
         if self.color_picker_field.take().is_some() {
             self.clear_color_picker_channel_drafts();
             self.color_picker_preview_color = None;
+            self.color_picker_focused_swatch = None;
+            self.color_picker_selected_swatch = None;
             self.color_picker_drag_target = None;
             self.color_picker_pending_outside_mouse_up_field = None;
             *self.color_picker_main_palette_bounds.borrow_mut() = None;

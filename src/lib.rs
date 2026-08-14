@@ -80,10 +80,13 @@ pub use model::{
     SettingsPageCustomBody, SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplit,
     SettingsPageSplitItem, SettingsPageSplitItemId, SettingsPageSplitItemPreviewStyle, SettingsRow,
     SettingsRowAction, SettingsRowActionId, SettingsRowDetailField, SettingsRowKind,
-    SettingsSection, SettingsSectionId, SettingsWindowError, SettingsWindowEvent,
-    SettingsWindowModel,
+    SettingsSavedColorSwatchId, SettingsSection, SettingsSectionId, SettingsWindowError,
+    SettingsWindowEvent, SettingsWindowModel,
 };
-pub use options::{SettingsPageBodyRenderer, SettingsWindowOptions};
+pub use options::{
+    MAX_SAVED_COLOR_SWATCHES, SettingsPageBodyRenderer, SettingsSavedColorSwatch,
+    SettingsWindowOptions, SettingsWindowOptionsError,
+};
 pub use panel::SettingsPanel;
 pub use theme::{
     SettingsButtonStateTheme, SettingsButtonTheme, SettingsInputTheme, SettingsSurfaceTheme,

@@ -4,8 +4,9 @@ use std::rc::Rc;
 use gpui::AppContext as _;
 use gpui_settings_window::{
     RgbColor, SettingsBreadcrumbSegment, SettingsFieldId, SettingsFieldKind, SettingsPage,
-    SettingsRow, SettingsSection, SettingsWindowEvent, SettingsWindowModel,
-    SettingsWindowOpenDisposition, SettingsWindowOptions, open_settings_window,
+    SettingsRow, SettingsSavedColorSwatch, SettingsSavedColorSwatchId, SettingsSection,
+    SettingsWindowEvent, SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions,
+    open_settings_window,
 };
 
 fn color_settings_model(value: &str) -> SettingsWindowModel {
@@ -54,10 +55,12 @@ fn color_settings_model_with_pages(selected_page: &str) -> SettingsWindowModel {
 }
 
 fn color_window_options() -> SettingsWindowOptions {
-    SettingsWindowOptions::default().with_saved_color_swatches([
-        RgbColor::new(0x11, 0x22, 0x33),
-        RgbColor::new(0xaa, 0xbb, 0xcc),
-    ])
+    SettingsWindowOptions::default()
+        .with_saved_color_swatches([
+            SettingsSavedColorSwatch::new("blue", RgbColor::new(0x11, 0x22, 0x33)),
+            SettingsSavedColorSwatch::new("accent", RgbColor::new(0xaa, 0xbb, 0xcc)),
+        ])
+        .expect("bounded colors")
 }
 
 #[test]
@@ -256,7 +259,12 @@ fn applies_saved_swatches_and_channel_values(cx: &mut gpui::TestAppContext) {
             let field_id = SettingsFieldId::from("accent_color");
             view.open_color_picker_for_test(field_id.clone(), window, cx);
 
-            view.apply_color_picker_swatch_for_test("#112233", cx);
+            assert!(
+                view.apply_color_picker_swatch_for_test(
+                    SettingsSavedColorSwatchId::from("blue"),
+                    cx
+                )
+            );
             assert_eq!(
                 view.color_preview_for_test(&field_id, cx).as_deref(),
                 Some("#112233"),
@@ -285,6 +293,158 @@ fn applies_saved_swatches_and_channel_values(cx: &mut gpui::TestAppContext) {
         field_id: SettingsFieldId::from("accent_color"),
         value: String::from("#ff2233"),
     }));
+}
+
+#[gpui::test]
+fn saved_swatch_grid_keys_use_stable_identities_and_ten_column_traversal(
+    cx: &mut gpui::TestAppContext,
+) {
+    let swatches: Vec<_> = (0..20)
+        .map(|index| {
+            SettingsSavedColorSwatch::new(
+                format!("swatch-{index}"),
+                RgbColor::new(index as u8, 2, 3),
+            )
+        })
+        .collect();
+    let options = SettingsWindowOptions::default()
+        .with_saved_color_swatches(swatches)
+        .expect("distinct identities are valid");
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            color_settings_model("#6699cc"),
+            options,
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    let view = handle.entity(cx).expect("root entity should exist");
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let captured_events = events.clone();
+    cx.update(|cx| {
+        cx.subscribe(&view, move |_, event: &SettingsWindowEvent, _| {
+            captured_events.borrow_mut().push(event.clone());
+        })
+        .detach();
+    });
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            view.open_color_picker_for_test(SettingsFieldId::from("accent_color"), window, cx);
+            view.focus_saved_color_grid_for_test(window, cx);
+        })
+        .expect("settings window should update");
+
+    cx.simulate_keystrokes(handle.window_handle().into(), "right right down enter");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(
+                view.focused_saved_color_swatch_for_test(cx),
+                Some(SettingsSavedColorSwatchId::from("swatch-12")),
+            );
+        })
+        .expect("settings window should be readable");
+    assert!(
+        events
+            .borrow()
+            .contains(&SettingsWindowEvent::FieldChanged {
+                field_id: SettingsFieldId::from("accent_color"),
+                value: RgbColor::new(12, 2, 3).to_hex(),
+            })
+    );
+}
+
+#[gpui::test]
+fn saved_swatch_focus_reconciles_by_identity_then_nearest_position(cx: &mut gpui::TestAppContext) {
+    let options = SettingsWindowOptions::default()
+        .with_saved_color_swatches([
+            SettingsSavedColorSwatch::new("a", RgbColor::new(1, 1, 1)),
+            SettingsSavedColorSwatch::new("b", RgbColor::new(1, 1, 1)),
+            SettingsSavedColorSwatch::new("c", RgbColor::new(2, 2, 2)),
+        ])
+        .expect("duplicate colors with distinct identities are valid");
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            color_settings_model("#6699cc"),
+            options,
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            view.open_color_picker_for_test(SettingsFieldId::from("accent_color"), window, cx);
+            assert!(
+                view.focus_saved_color_swatch_for_test(SettingsSavedColorSwatchId::from("b"), cx)
+            );
+            assert!(
+                view.apply_color_picker_swatch_for_test(SettingsSavedColorSwatchId::from("b"), cx,)
+            );
+        })
+        .expect("settings window should update");
+    handle
+        .update_options(
+            cx,
+            SettingsWindowOptions::default()
+                .with_saved_color_swatches([
+                    SettingsSavedColorSwatch::new("c", RgbColor::new(2, 2, 2)),
+                    SettingsSavedColorSwatch::new("b", RgbColor::new(1, 1, 1)),
+                ])
+                .expect("refresh options are valid"),
+        )
+        .expect("options should update");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(
+                view.focused_saved_color_swatch_for_test(cx),
+                Some(SettingsSavedColorSwatchId::from("b"))
+            );
+            assert_eq!(
+                view.selected_saved_color_swatch_for_test(cx),
+                Some(SettingsSavedColorSwatchId::from("b"))
+            );
+        })
+        .expect("settings window should be readable");
+    handle
+        .update_options(
+            cx,
+            SettingsWindowOptions::default()
+                .with_saved_color_swatches([SettingsSavedColorSwatch::new(
+                    "c",
+                    RgbColor::new(2, 2, 2),
+                )])
+                .expect("refresh options are valid"),
+        )
+        .expect("options should update");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(
+                view.focused_saved_color_swatch_for_test(cx),
+                Some(SettingsSavedColorSwatchId::from("c"))
+            );
+            assert_eq!(view.selected_saved_color_swatch_for_test(cx), None);
+        })
+        .expect("settings window should be readable");
+    handle
+        .update_options(cx, SettingsWindowOptions::default())
+        .expect("empty options should update");
+    handle
+        .window_handle()
+        .read_with(cx, |view, cx| {
+            assert_eq!(view.focused_saved_color_swatch_for_test(cx), None);
+            assert_eq!(view.selected_saved_color_swatch_for_test(cx), None);
+        })
+        .expect("settings window should be readable");
 }
 
 #[gpui::test]

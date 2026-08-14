@@ -12,16 +12,60 @@ impl SettingsPanel {
 
     pub fn scrollbar_active_states_for_test(&self) -> (bool, bool) {
         (
-            self.navigation_scrollbar_visibility.opacity() > 0.0
-                || self.navigation_scrollbar_visibility.is_animating(),
-            self.content_scrollbar_visibility.opacity() > 0.0
-                || self.content_scrollbar_visibility.is_animating(),
+            self.navigation_scrollbar
+                .current_owner()
+                .is_some_and(|owner| {
+                    self.navigation_scrollbar
+                        .opacity_at(owner, std::time::Instant::now())
+                        .unwrap_or(0.0)
+                        > 0.0
+                }),
+            self.content_scrollbar.current_owner().is_some_and(|owner| {
+                self.content_scrollbar
+                    .opacity_at(owner, std::time::Instant::now())
+                    .unwrap_or(0.0)
+                    > 0.0
+            }),
         )
     }
 
     pub fn split_scrollbar_active_for_test(&self) -> bool {
-        self.split_scrollbar_visibility.opacity() > 0.0
-            || self.split_scrollbar_visibility.is_animating()
+        self.split_scrollbar.current_owner().is_some_and(|owner| {
+            self.split_scrollbar
+                .opacity_at(owner, std::time::Instant::now())
+                .unwrap_or(0.0)
+                > 0.0
+        })
+    }
+
+    pub fn scrollbar_owners_for_test(
+        &self,
+    ) -> (
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+    ) {
+        (
+            self.navigation_scrollbar.current_owner(),
+            self.content_scrollbar.current_owner(),
+            self.split_scrollbar.current_owner(),
+        )
+    }
+
+    pub fn scroll_handles_for_test(&self) -> (ScrollHandle, ScrollHandle, ScrollHandle) {
+        (
+            self.navigation_scroll_handle.clone(),
+            self.scroll_handle.clone(),
+            self.split_scroll_handle.clone(),
+        )
+    }
+
+    pub fn scrollbar_states_for_test(&self) -> (ScrollbarState, ScrollbarState, ScrollbarState) {
+        (
+            self.navigation_scrollbar.clone(),
+            self.content_scrollbar.clone(),
+            self.split_scrollbar.clone(),
+        )
     }
 
     pub fn record_navigation_scrollbar_activity_for_test(
@@ -46,10 +90,6 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.note_split_scrollbar_activity(window, cx);
-    }
-
-    pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
-        self.reset_scrollbar_visibility(cx);
     }
 
     pub fn page_split_render_metrics_for_test(&self) -> Option<(usize, usize, usize, f32)> {
@@ -127,13 +167,43 @@ impl SettingsPanel {
         self.handle_field_changed(&field_id, value, cx);
     }
 
-    pub fn apply_color_picker_swatch_for_test(&mut self, value: &str, cx: &mut Context<Self>) {
-        let Some(color) = RgbColor::parse(value) else {
-            return;
-        };
-        if self.saved_color_swatches.contains(&color) {
-            self.apply_color_picker_swatch(color, cx);
+    pub fn apply_color_picker_swatch_for_test(
+        &mut self,
+        swatch_id: SettingsSavedColorSwatchId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.focus_saved_color_swatch(swatch_id, cx) {
+            return false;
         }
+        self.apply_focused_saved_color_swatch(cx)
+    }
+
+    pub fn focus_saved_color_swatch_for_test(
+        &mut self,
+        swatch_id: SettingsSavedColorSwatchId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.focus_saved_color_swatch(swatch_id, cx)
+    }
+
+    pub fn move_saved_color_swatch_focus_for_test(
+        &mut self,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.focus_relative_saved_color_swatch(delta, cx)
+    }
+
+    pub fn focused_saved_color_swatch_for_test(&self) -> Option<SettingsSavedColorSwatchId> {
+        self.color_picker_focused_swatch.clone()
+    }
+
+    pub fn selected_saved_color_swatch_for_test(&self) -> Option<SettingsSavedColorSwatchId> {
+        self.color_picker_selected_swatch.clone()
+    }
+
+    pub fn focus_saved_color_grid_for_test(&self, window: &mut Window) {
+        window.focus(&self.saved_color_grid_focus_handle);
     }
 
     pub fn replace_color_picker_channel_text_for_test(

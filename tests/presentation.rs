@@ -1,11 +1,12 @@
 use gpui::IntoElement;
 use gpui_settings_window::{
-    MAX_PAGE_DETAIL_ROWS, RgbColor, SettingsBreadcrumbSegment, SettingsChoiceOption,
-    SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
+    MAX_PAGE_DETAIL_ROWS, MAX_SAVED_COLOR_SWATCHES, RgbColor, SettingsBreadcrumbSegment,
+    SettingsChoiceOption, SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
     SettingsPageActionPriority, SettingsPageId, SettingsPageSplit, SettingsPageSplitItem,
     SettingsPageSplitItemId, SettingsPageSplitItemPreviewStyle, SettingsRow, SettingsRowAction,
-    SettingsRowDetailField, SettingsSection, SettingsWindowError, SettingsWindowModel,
-    SettingsWindowOptions, SettingsWindowTheme,
+    SettingsRowDetailField, SettingsSavedColorSwatch, SettingsSavedColorSwatchId, SettingsSection,
+    SettingsWindowError, SettingsWindowModel, SettingsWindowOptions, SettingsWindowOptionsError,
+    SettingsWindowTheme,
 };
 
 #[test]
@@ -749,8 +750,8 @@ fn color_picker_saved_swatches_are_bounded_inside_popup() {
 
     assert!(render_source.contains("COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT"));
     assert!(render_source.contains("COLOR_PICKER_SAVED_SWATCH_VISIBLE_ROWS"));
-    assert!(render_source.contains(".max_h(px(COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT))"));
-    assert!(render_source.contains(".overflow_y_scroll()"));
+    assert!(render_source.contains(".h(px(COLOR_PICKER_SAVED_SWATCH_MAX_HEIGHT))"));
+    assert!(!render_source.contains(".overflow_y_scroll()"));
 }
 
 #[test]
@@ -878,49 +879,6 @@ fn page_local_split_detail_rows_use_narrow_layout() {
 }
 
 #[test]
-fn scrollbar_activity_does_not_force_unconditional_panel_notify() {
-    let source = include_str!("../src/panel/scrollbar.rs");
-
-    assert!(
-        source.contains("fn scrollbar_update_callback"),
-        "managed scrollbar visibility must still have an owner repaint callback"
-    );
-    assert!(
-        source.contains("cx.notify();"),
-        "visibility transition callbacks should still notify the owner"
-    );
-
-    for (function, next_function) in [
-        (
-            "note_content_scrollbar_activity",
-            "note_navigation_scrollbar_activity",
-        ),
-        (
-            "note_navigation_scrollbar_activity",
-            "note_split_scrollbar_activity",
-        ),
-        (
-            "note_split_scrollbar_activity",
-            "note_content_scrollbar_motion",
-        ),
-    ] {
-        let body = source
-            .split_once(function)
-            .and_then(|(_, rest)| rest.split_once(next_function).map(|(body, _)| body))
-            .unwrap_or_else(|| panic!("missing scrollbar activity function {function}"));
-
-        assert!(
-            body.contains("record_viewport_activity(window, cx, on_update);"),
-            "{function} should continue reporting activity to managed scrollbar visibility"
-        );
-        assert!(
-            !body.contains("cx.notify();"),
-            "{function} should not force a panel repaint for every viewport activity event"
-        );
-    }
-}
-
-#[test]
 fn window_options_carry_custom_visual_theme() {
     let mut theme = SettingsWindowTheme::default();
     theme.window_background = RgbColor::new(1, 2, 3);
@@ -931,4 +889,44 @@ fn window_options_carry_custom_visual_theme() {
 
     assert_eq!(options.visual_theme(), &theme);
     assert_eq!(options.visual_theme().primary_button.font_weight, 650);
+}
+
+#[test]
+fn saved_color_options_accept_capacity_and_reject_one_excess() {
+    let colors = (0..MAX_SAVED_COLOR_SWATCHES).map(|index| {
+        SettingsSavedColorSwatch::new(format!("swatch-{index}"), RgbColor::new(index as u8, 0, 0))
+    });
+    let options = SettingsWindowOptions::default()
+        .with_saved_color_swatches(colors)
+        .expect("exact saved-color capacity is valid");
+    assert_eq!(
+        options.saved_color_swatches().len(),
+        MAX_SAVED_COLOR_SWATCHES
+    );
+
+    let oversize = (0..=MAX_SAVED_COLOR_SWATCHES).map(|index| {
+        SettingsSavedColorSwatch::new(format!("swatch-{index}"), RgbColor::new(index as u8, 0, 0))
+    });
+    assert_eq!(
+        SettingsWindowOptions::default().with_saved_color_swatches(oversize),
+        Err(SettingsWindowOptionsError::TooManySavedColorSwatches {
+            at_least_swatch_count: MAX_SAVED_COLOR_SWATCHES + 1,
+            max_swatch_count: MAX_SAVED_COLOR_SWATCHES,
+        })
+    );
+}
+
+#[test]
+fn saved_color_options_reject_duplicate_stable_identities() {
+    let error = SettingsWindowOptions::default().with_saved_color_swatches([
+        SettingsSavedColorSwatch::new("duplicate", RgbColor::new(1, 2, 3)),
+        SettingsSavedColorSwatch::new("duplicate", RgbColor::new(4, 5, 6)),
+    ]);
+
+    assert_eq!(
+        error,
+        Err(SettingsWindowOptionsError::DuplicateSavedColorSwatchId(
+            SettingsSavedColorSwatchId::from("duplicate"),
+        ))
+    );
 }

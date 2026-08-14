@@ -12,6 +12,41 @@ impl SettingsWindowView {
             .scrollbar_active_states_for_test()
     }
 
+    pub fn split_scrollbar_active_for_test(&self, cx: &App) -> bool {
+        self.settings_panel
+            .read(cx)
+            .split_scrollbar_active_for_test()
+    }
+
+    pub fn scrollbar_owners_for_test(
+        &self,
+        cx: &App,
+    ) -> (
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+        Option<gpui_scrollbar::ScrollbarOwnerKey>,
+    ) {
+        self.settings_panel.read(cx).scrollbar_owners_for_test()
+    }
+
+    pub fn scroll_handles_for_test(
+        &self,
+        cx: &App,
+    ) -> (gpui::ScrollHandle, gpui::ScrollHandle, gpui::ScrollHandle) {
+        self.settings_panel.read(cx).scroll_handles_for_test()
+    }
+
+    pub fn scrollbar_states_for_test(
+        &self,
+        cx: &App,
+    ) -> (
+        gpui_scrollbar::ScrollbarState,
+        gpui_scrollbar::ScrollbarState,
+        gpui_scrollbar::ScrollbarState,
+    ) {
+        self.settings_panel.read(cx).scrollbar_states_for_test()
+    }
+
     pub fn record_navigation_scrollbar_activity_for_test(
         &mut self,
         window: &mut Window,
@@ -39,12 +74,6 @@ impl SettingsWindowView {
     ) {
         self.settings_panel.update(cx, |panel, cx| {
             panel.record_split_scrollbar_activity_for_test(window, cx);
-        });
-    }
-
-    pub fn reset_scrollbar_visibility_for_test(&mut self, cx: &mut Context<Self>) {
-        self.settings_panel.update(cx, |panel, cx| {
-            panel.reset_scrollbar_visibility_for_test(cx)
         });
     }
 
@@ -138,11 +167,59 @@ impl SettingsWindowView {
         });
     }
 
-    /// Applies a saved color picker swatch.
-    pub fn apply_color_picker_swatch_for_test(&mut self, value: &str, cx: &mut Context<Self>) {
+    /// Applies one saved color picker swatch by stable identity.
+    pub fn apply_color_picker_swatch_for_test(
+        &mut self,
+        swatch_id: crate::SettingsSavedColorSwatchId,
+        cx: &mut Context<Self>,
+    ) -> bool {
         self.settings_panel.update(cx, |panel, cx| {
-            panel.apply_color_picker_swatch_for_test(value, cx);
-        });
+            panel.apply_color_picker_swatch_for_test(swatch_id, cx)
+        })
+    }
+
+    pub fn focus_saved_color_swatch_for_test(
+        &mut self,
+        swatch_id: crate::SettingsSavedColorSwatchId,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.focus_saved_color_swatch_for_test(swatch_id, cx)
+        })
+    }
+
+    pub fn move_saved_color_swatch_focus_for_test(
+        &mut self,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.move_saved_color_swatch_focus_for_test(delta, cx)
+        })
+    }
+
+    pub fn focused_saved_color_swatch_for_test(
+        &self,
+        cx: &App,
+    ) -> Option<crate::SettingsSavedColorSwatchId> {
+        self.settings_panel
+            .read(cx)
+            .focused_saved_color_swatch_for_test()
+    }
+
+    pub fn selected_saved_color_swatch_for_test(
+        &self,
+        cx: &App,
+    ) -> Option<crate::SettingsSavedColorSwatchId> {
+        self.settings_panel
+            .read(cx)
+            .selected_saved_color_swatch_for_test()
+    }
+
+    pub fn focus_saved_color_grid_for_test(&self, window: &mut Window, cx: &App) {
+        self.settings_panel
+            .read(cx)
+            .focus_saved_color_grid_for_test(window);
     }
 
     /// Replaces one active color picker channel input.

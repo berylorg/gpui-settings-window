@@ -7,9 +7,9 @@ use gpui_settings_window::{
     SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction, SettingsPageActionId,
     SettingsPageActionPriority, SettingsPageId, SettingsPageSplit, SettingsPageSplitItem,
     SettingsPageSplitItemId, SettingsPanel, SettingsRow, SettingsRowAction, SettingsRowActionId,
-    SettingsRowDetailField, SettingsSection, SettingsSectionId, SettingsWindowEvent,
-    SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions, SettingsWindowTheme,
-    open_settings_window,
+    SettingsRowDetailField, SettingsSavedColorSwatch, SettingsSection, SettingsSectionId,
+    SettingsWindowEvent, SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions,
+    SettingsWindowTheme, open_settings_window,
 };
 
 fn settings_model(selected_section: &str, font_value: &str) -> SettingsWindowModel {
@@ -188,6 +188,43 @@ fn settings_model_with_local_split() -> SettingsWindowModel {
     .expect("valid settings model")
 }
 
+fn settings_model_with_unselected_local_split() -> SettingsWindowModel {
+    SettingsWindowModel::new(vec![
+        SettingsSection::new("appearance", "Appearance").with_root_page(
+            SettingsPage::new("appearance", "Appearance")
+                .with_local_split(
+                    SettingsPageSplit::new()
+                        .with_item(SettingsPageSplitItem::new("default", "Default"))
+                        .with_item(SettingsPageSplitItem::new("large", "Large")),
+                )
+                .with_row(SettingsRow::new(
+                    "font_size",
+                    "Font size",
+                    "14",
+                    SettingsFieldKind::Number,
+                )),
+        ),
+    ])
+    .expect("valid unselected split model")
+}
+
+fn settings_model_with_two_split_pages(selected_page: &str) -> SettingsWindowModel {
+    let split = || {
+        SettingsPageSplit::new()
+            .with_item(SettingsPageSplitItem::new("default", "Default").with_selected(true))
+    };
+    let mut model = SettingsWindowModel::new(vec![
+        SettingsSection::new("appearance", "Appearance")
+            .with_root_page(SettingsPage::new("appearance", "Appearance").with_local_split(split()))
+            .with_page(SettingsPage::new("alternate", "Alternate").with_local_split(split())),
+    ])
+    .expect("valid two-split-page model");
+    model
+        .select_page(selected_page)
+        .expect("selected split page should exist");
+    model
+}
+
 fn settings_model_with_long_local_split(
     item_count: usize,
     selected_index: usize,
@@ -321,12 +358,9 @@ fn scrollbar_activity_is_scoped_to_settings_scroll_region(cx: &mut gpui::TestApp
             assert!(navigation_active);
             assert!(!content_active);
 
-            view.reset_scrollbar_visibility_for_test(cx);
-            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
-
             view.record_content_scrollbar_activity_for_test(window, cx);
             let (navigation_active, content_active) = view.scrollbar_active_states_for_test(cx);
-            assert!(!navigation_active);
+            assert!(navigation_active);
             assert!(content_active);
         })
         .expect("settings window should update");
@@ -837,6 +871,176 @@ fn emits_page_local_split_item_selection_events(cx: &mut gpui::TestAppContext) {
             item_id: SettingsPageSplitItemId::from("missing"),
         })
     );
+}
+
+#[gpui::test]
+fn split_scrollbar_unmounts_on_disappearance_and_remounts_with_a_new_owner(
+    cx: &mut gpui::TestAppContext,
+) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model_with_local_split(),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    let (navigation_owner, content_owner, first_split_owner) = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scrollbar_owners_for_test(cx))
+        .expect("settings window should be readable");
+    assert!(first_split_owner.is_some());
+    let handles = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scroll_handles_for_test(cx))
+        .expect("settings window should be readable");
+
+    handle
+        .update_model(cx, settings_model("appearance", "Inter"))
+        .expect("model should update");
+    let without_split = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scrollbar_owners_for_test(cx))
+        .expect("settings window should be readable");
+    assert_eq!(without_split.0, navigation_owner);
+    assert_eq!(without_split.1, content_owner);
+    assert_eq!(without_split.2, None);
+
+    handle
+        .update_model(cx, settings_model_with_local_split())
+        .expect("model should update");
+    let (next_navigation, next_content, next_split) = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scrollbar_owners_for_test(cx))
+        .expect("settings window should be readable");
+    let next_handles = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scroll_handles_for_test(cx))
+        .expect("settings window should be readable");
+    assert_eq!(next_navigation, navigation_owner);
+    assert_eq!(next_content, content_owner);
+    assert_ne!(next_split, first_split_owner);
+    assert!(handles.0.ptr_eq(&next_handles.0));
+    assert!(handles.1.ptr_eq(&next_handles.1));
+    assert!(handles.2.ptr_eq(&next_handles.2));
+}
+
+#[gpui::test]
+fn split_scrollbar_activity_is_isolated_from_navigation_and_content(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model_with_local_split(),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+            assert!(!view.split_scrollbar_active_for_test(cx));
+            view.record_split_scrollbar_activity_for_test(window, cx);
+            assert_eq!(view.scrollbar_active_states_for_test(cx), (false, false));
+            assert!(view.split_scrollbar_active_for_test(cx));
+        })
+        .expect("settings window should update");
+}
+
+#[gpui::test]
+fn unselected_split_keeps_its_scrollbar_mounted_and_renderable(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model_with_unselected_local_split(),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    cx.update_window(handle.window_handle().into(), |_, window, cx| {
+        window.draw(cx).clear();
+    })
+    .expect("unselected split should render");
+    handle
+        .window_handle()
+        .update(cx, |view, window, cx| {
+            assert!(view.scrollbar_owners_for_test(cx).2.is_some());
+            view.record_split_scrollbar_activity_for_test(window, cx);
+            assert!(view.split_scrollbar_active_for_test(cx));
+        })
+        .expect("settings window should update");
+}
+
+#[gpui::test]
+fn changing_between_split_pages_retires_the_old_split_generation(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model_with_two_split_pages("appearance"),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    let first = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scrollbar_owners_for_test(cx))
+        .expect("settings window should be readable");
+    handle
+        .update_model(cx, settings_model_with_two_split_pages("alternate"))
+        .expect("model should update");
+    let second = handle
+        .window_handle()
+        .read_with(cx, |view, cx| view.scrollbar_owners_for_test(cx))
+        .expect("settings window should be readable");
+    assert_eq!(second.0, first.0);
+    assert_eq!(second.1, first.1);
+    assert_ne!(second.2, first.2);
+    assert!(second.2.is_some());
+}
+
+#[gpui::test]
+fn releasing_panel_tears_down_all_scrollbar_states(cx: &mut gpui::TestAppContext) {
+    let handle = cx.update(|cx| {
+        open_settings_window(
+            cx,
+            settings_model_with_local_split(),
+            SettingsWindowOptions::default(),
+            SettingsWindowOpenDisposition::Visible {
+                focus_requested: false,
+            },
+        )
+        .expect("settings window should open")
+    });
+    let (panel, weak_panel, states) = handle
+        .window_handle()
+        .update(cx, |_, window, cx| {
+            let panel =
+                cx.new(|cx| SettingsPanel::new(settings_model_with_local_split(), window, cx));
+            let weak_panel = panel.downgrade();
+            let states = panel.read(cx).scrollbar_states_for_test();
+            (panel, weak_panel, states)
+        })
+        .expect("standalone panel should be constructible in the live window");
+    drop(panel);
+    cx.update(|_| {});
+    cx.run_until_parked();
+
+    assert!(weak_panel.upgrade().is_none());
+    assert_eq!(states.0.current_owner(), None);
+    assert_eq!(states.1.current_owner(), None);
+    assert_eq!(states.2.current_owner(), None);
 }
 
 #[gpui::test]
@@ -1436,7 +1640,11 @@ fn sync_options_preserves_unsynchronized_field_text(cx: &mut gpui::TestAppContex
             cx,
             SettingsWindowOptions::default()
                 .with_visual_theme(theme)
-                .with_saved_color_swatches([RgbColor::new(9, 8, 7)]),
+                .with_saved_color_swatches([SettingsSavedColorSwatch::new(
+                    "theme",
+                    RgbColor::new(9, 8, 7),
+                )])
+                .expect("bounded colors"),
         )
         .expect("options update should succeed");
 
@@ -1488,7 +1696,12 @@ fn settings_window_diagnostics_distinguish_sync_and_lookup_counters(cx: &mut gpu
     handle
         .update_options(
             cx,
-            SettingsWindowOptions::default().with_saved_color_swatches([RgbColor::new(1, 2, 3)]),
+            SettingsWindowOptions::default()
+                .with_saved_color_swatches([SettingsSavedColorSwatch::new(
+                    "background",
+                    RgbColor::new(1, 2, 3),
+                )])
+                .expect("bounded colors"),
         )
         .expect("option sync should succeed");
     handle
