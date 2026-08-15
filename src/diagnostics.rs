@@ -16,8 +16,19 @@ pub struct SettingsWindowDiagnostics {
     pub detail_rows: SettingsWindowRowSurfaceDiagnostics,
     /// Diagnostics for the selected page's local split list, when present.
     pub split_list: Option<SettingsWindowRowSurfaceDiagnostics>,
+    /// Content-free bounded pager counters for the selected split source.
+    pub split_pager: Option<SettingsWindowSplitPagerDiagnostics>,
     /// Counters and timings for recent settings-window work.
     pub performance: SettingsWindowPerformanceDiagnostics,
+}
+
+/// Content-free bounded paged split-source counters.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SettingsWindowSplitPagerDiagnostics {
+    pub resident_page_count: usize,
+    pub resident_item_count: usize,
+    pub pending_request_count: usize,
+    pub stale_result_count: u64,
 }
 
 /// Content-free diagnostics for one row-like settings surface.

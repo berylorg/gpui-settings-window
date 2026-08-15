@@ -6,6 +6,69 @@ use crate::color_picker::{
 };
 
 impl SettingsPanel {
+    pub fn demand_page_split_range_for_test(&mut self, range: std::ops::Range<usize>) {
+        self.split_pager.ensure_demand(range);
+    }
+
+    pub fn deliver_page_split_result_without_notify_for_test(
+        &mut self,
+        result: SettingsPageSplitPageResult,
+    ) -> Result<SettingsPageSplitDelivery, SettingsPageSplitDeliveryError> {
+        self.split_pager.deliver(result)
+    }
+
+    pub fn focus_page_split_position_for_test(
+        &mut self,
+        position: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let focused = self.split_pager.focus_position(position);
+        if focused {
+            self.reveal_split_item_index(position, self.split_pager.logical_item_count());
+            cx.notify();
+        }
+        focused
+    }
+
+    pub fn focused_page_split_position_for_test(&self) -> Option<usize> {
+        self.split_pager.focused_position()
+    }
+
+    pub fn focus_page_split_container_for_test(&self, window: &mut Window) {
+        window.focus(&self.split_focus_handle);
+    }
+
+    pub fn focus_panel_for_test(&self, window: &mut Window) {
+        window.focus(&self.focus_handle);
+    }
+
+    pub fn page_split_container_focused_for_test(&self, window: &Window) -> bool {
+        self.split_focus_handle.is_focused(window)
+    }
+
+    pub fn select_page_split_pointer_capture_for_test(
+        &mut self,
+        page_id: SettingsPageId,
+        source_key: crate::SettingsPageSplitSourceKey,
+        logical_position: usize,
+        item_id: SettingsPageSplitItemId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.select_split_item_from_pointer(
+            page_id,
+            source_key,
+            logical_position,
+            item_id,
+            window,
+            cx,
+        )
+    }
+
+    pub fn release_page_split_for_test(&mut self) {
+        self.suspend_page_split();
+    }
+
     pub fn visual_theme_for_test(&self) -> SettingsWindowTheme {
         self.visual_theme.clone()
     }
@@ -93,8 +156,8 @@ impl SettingsPanel {
     }
 
     pub fn page_split_render_metrics_for_test(&self) -> Option<(usize, usize, usize, f32)> {
-        let split = self.model.selected_page().local_split()?;
-        let item_count = split.items().len();
+        let split = self.model.selected_page().paged_split_source()?;
+        let item_count = split.logical_item_count();
         let range = page_local_split_render_window(
             item_count,
             self.split_scroll_handle.offset().y,

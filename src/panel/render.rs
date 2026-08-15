@@ -29,6 +29,16 @@ enum DetailRowsLayout {
 
 impl Render for SettingsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.page_split_active {
+            if let Some(source) = self.model.selected_page().paged_split_source() {
+                let range = page_local_split_render_window(
+                    source.logical_item_count(),
+                    self.split_scroll_handle.offset().y,
+                    self.split_scroll_handle.bounds().size.height,
+                );
+                self.split_pager.ensure_demand(range);
+            }
+        }
         let lookup_counts_before = self.diagnostic_color_lookup_counts();
         let render_started = std::time::Instant::now();
         let element = div()
@@ -191,7 +201,7 @@ impl SettingsPanel {
     fn render_page_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let page = self.model.selected_page();
         let page_id = page.page_id().clone();
-        let local_split = page.local_split().cloned();
+        let local_split = page.paged_split_source().cloned();
 
         if let Some(local_split) = local_split {
             return div()
@@ -295,17 +305,21 @@ impl SettingsPanel {
     fn render_page_local_split_list(
         &self,
         page_id: crate::SettingsPageId,
-        local_split: crate::SettingsPageSplit,
+        local_split: crate::SettingsPageSplitSource,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let item_count = local_split.items().len();
+        let item_count = local_split.logical_item_count();
         let rendered_range = page_local_split_render_window(
             item_count,
             self.split_scroll_handle.offset().y,
             self.split_scroll_handle.bounds().size.height,
         );
-        let children =
-            self.render_page_local_split_window(page_id.clone(), &local_split, rendered_range, cx);
+        let children = self.render_page_local_split_window(
+            page_id.clone(),
+            local_split.key().clone(),
+            rendered_range,
+            cx,
+        );
 
         div()
             .id(SharedString::from(format!(
@@ -318,6 +332,11 @@ impl SettingsPanel {
             .min_h(px(0.0))
             .relative()
             .overflow_hidden()
+            .track_focus(&self.split_focus_handle)
+            .key_context(SPLIT_KEY_CONTEXT)
+            .on_action(cx.listener(Self::split_previous))
+            .on_action(cx.listener(Self::split_next))
+            .on_action(cx.listener(Self::apply_split))
             .on_mouse_move(cx.listener(Self::note_split_scrollbar_motion))
             .on_scroll_wheel(cx.listener(Self::note_split_scrollbar_scroll))
             .child(
@@ -349,11 +368,10 @@ impl SettingsPanel {
     fn render_page_local_split_window(
         &self,
         page_id: crate::SettingsPageId,
-        local_split: &crate::SettingsPageSplit,
+        source_key: crate::SettingsPageSplitSourceKey,
         rendered_range: Range<usize>,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let items = local_split.items();
         let mut children = Vec::with_capacity(rendered_range.len() * 2 + 2);
         let top_spacer_height = page_local_split_offset_for_index(rendered_range.start);
         if top_spacer_height > 0.0 {
@@ -366,22 +384,39 @@ impl SettingsPanel {
         }
 
         for index in rendered_range.clone() {
-            if let Some(item) = items.get(index).cloned() {
-                children.push(self.render_page_local_split_item(page_id.clone(), item, cx));
-                if index + 1 < rendered_range.end {
-                    children.push(
-                        div()
-                            .flex_none()
-                            .h(px(PAGE_LOCAL_SPLIT_ITEM_GAP))
-                            .into_any_element(),
-                    );
-                }
+            if let Some(item) = self.split_pager.item_at(index).cloned() {
+                let selected = self.split_pager.is_selected(&item);
+                let focused = self.split_pager.is_focused(&item);
+                children.push(self.render_page_local_split_item(
+                    page_id.clone(),
+                    source_key.clone(),
+                    item,
+                    selected,
+                    focused,
+                    cx,
+                ));
+            } else {
+                let (state, message) = self
+                    .split_pager
+                    .range_state(index)
+                    .unwrap_or((split::SplitRangeState::Pending, None));
+                children.push(self.render_page_local_split_placeholder(index, state, message));
+            }
+            if index + 1 < rendered_range.end {
+                children.push(
+                    div()
+                        .flex_none()
+                        .h(px(PAGE_LOCAL_SPLIT_ITEM_GAP))
+                        .into_any_element(),
+                );
             }
         }
 
         let rendered_height = page_local_split_segment_height(rendered_range.len());
         let bottom_spacer_height =
-            (page_local_split_total_height(items.len()) - top_spacer_height - rendered_height)
+            (page_local_split_total_height(self.split_pager.logical_item_count())
+                - top_spacer_height
+                - rendered_height)
                 .max(0.0);
         if bottom_spacer_height > 0.0 {
             children.push(
@@ -397,11 +432,14 @@ impl SettingsPanel {
     fn render_page_local_split_item(
         &self,
         page_id: crate::SettingsPageId,
+        source_key: crate::SettingsPageSplitSourceKey,
         item: crate::SettingsPageSplitItem,
+        selected: bool,
+        focused: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let item_id = item.item_id().clone();
-        let selected = item.is_selected();
+        let logical_position = item.logical_position();
         let button_theme = self.visual_theme.navigation_button.clone();
         let state = if selected {
             button_theme.active.clone()
@@ -453,6 +491,7 @@ impl SettingsPanel {
             .rounded_sm()
             .border_1()
             .border_color(theme_color(border))
+            .when(focused, |element| element.border_2())
             .bg(theme_color(background))
             .text_color(theme_color(foreground))
             .text_size(px(font_size))
@@ -499,13 +538,46 @@ impl SettingsPanel {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
-                    window.focus(&this.focus_handle);
-                    cx.emit(SettingsWindowEvent::PageSplitItemSelected {
-                        page_id: page_id.clone(),
-                        item_id: item_id.clone(),
-                    });
+                    this.select_split_item_from_pointer(
+                        page_id.clone(),
+                        source_key.clone(),
+                        logical_position,
+                        item_id.clone(),
+                        window,
+                        cx,
+                    );
                 }),
             )
+            .into_any_element()
+    }
+
+    fn render_page_local_split_placeholder(
+        &self,
+        logical_position: usize,
+        state: split::SplitRangeState,
+        message: Option<&str>,
+    ) -> AnyElement {
+        let label = match state {
+            split::SplitRangeState::Pending => "Loading…",
+            split::SplitRangeState::Failed => message.unwrap_or("Unavailable"),
+            split::SplitRangeState::Cancelled => "Cancelled",
+        };
+        div()
+            .id(SharedString::from(format!(
+                "settings-page-local-split-placeholder-{logical_position}"
+            )))
+            .flex_none()
+            .w_full()
+            .h(px(PAGE_LOCAL_SPLIT_ITEM_HEIGHT))
+            .overflow_hidden()
+            .px_2()
+            .py_2()
+            .rounded_sm()
+            .border_1()
+            .border_color(theme_color(self.visual_theme.row.border))
+            .bg(theme_color(self.visual_theme.row.background))
+            .text_color(theme_color(self.visual_theme.row.muted_foreground))
+            .child(label.to_owned())
             .into_any_element()
     }
 

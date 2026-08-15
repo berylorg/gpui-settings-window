@@ -1,6 +1,83 @@
 use super::*;
 
 impl SettingsWindowView {
+    pub fn demand_page_split_range_for_test(
+        &mut self,
+        range: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_panel
+            .update(cx, |panel, _| panel.demand_page_split_range_for_test(range));
+    }
+
+    pub fn deliver_page_split_result_without_notify_for_test(
+        &mut self,
+        result: crate::SettingsPageSplitPageResult,
+        cx: &mut Context<Self>,
+    ) -> Result<crate::SettingsPageSplitDelivery, crate::SettingsPageSplitDeliveryError> {
+        self.settings_panel.update(cx, |panel, _| {
+            panel.deliver_page_split_result_without_notify_for_test(result)
+        })
+    }
+
+    pub fn focus_page_split_position_for_test(
+        &mut self,
+        position: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.focus_page_split_position_for_test(position, cx)
+        })
+    }
+
+    pub fn focused_page_split_position_for_test(&self, cx: &App) -> Option<usize> {
+        self.settings_panel
+            .read(cx)
+            .focused_page_split_position_for_test()
+    }
+
+    pub fn focus_page_split_container_for_test(&self, window: &mut Window, cx: &App) {
+        self.settings_panel
+            .read(cx)
+            .focus_page_split_container_for_test(window);
+    }
+
+    pub fn focus_panel_for_test(&self, window: &mut Window, cx: &App) {
+        self.settings_panel.read(cx).focus_panel_for_test(window);
+    }
+
+    pub fn page_split_container_focused_for_test(&self, window: &Window, cx: &App) -> bool {
+        self.settings_panel
+            .read(cx)
+            .page_split_container_focused_for_test(window)
+    }
+
+    pub fn select_page_split_pointer_capture_for_test(
+        &mut self,
+        page_id: crate::SettingsPageId,
+        source_key: crate::SettingsPageSplitSourceKey,
+        logical_position: usize,
+        item_id: crate::SettingsPageSplitItemId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.select_page_split_pointer_capture_for_test(
+                page_id,
+                source_key,
+                logical_position,
+                item_id,
+                window,
+                cx,
+            )
+        })
+    }
+
+    pub fn release_page_split_for_test(&mut self, cx: &mut Context<Self>) {
+        self.settings_panel
+            .update(cx, |panel, _| panel.release_page_split_for_test());
+    }
+
     /// Returns the current visual theme.
     pub fn visual_theme_for_test(&self, cx: &App) -> crate::SettingsWindowTheme {
         self.settings_panel.read(cx).visual_theme_for_test()

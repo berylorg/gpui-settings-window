@@ -39,7 +39,13 @@ The crate exposes app-neutral host APIs for observing and closing transient sett
 
 Hiding the settings window closes transient settings-window popups first, so a preheated reusable window cannot retain hidden popup state across later show operations.
 
-The crate exposes app-neutral settings-window diagnostics for host-owned profiling tools. Diagnostics are content-free and report only stable page/section ids, row-surface counts, bounded visible/rendered ranges, scroll rendering strategy, model-sync timing, option-sync timing, render-tree construction timing, input-sync counts, color-preview lookup counts, and a dominant cost category. Diagnostics must not include setting labels, setting values, file paths, validation text, host theme documents, or other host-owned content.
+The crate exposes app-neutral settings-window diagnostics for host-owned profiling tools.
+Diagnostics are content-free and report only stable page/section ids, row-surface counts, bounded
+visible/rendered ranges, scroll rendering strategy, resident split-page and split-item counts,
+pending split-request count, stale split-result count, model-sync timing,
+option-sync timing, render-tree construction timing, input-sync counts, color-preview lookup counts,
+and a dominant cost category. Diagnostics must not include setting labels, setting values, file
+paths, validation text, host theme documents, or other host-owned content.
 
 Host applications own settings values, domain validation, persistence, apply/cancel semantics,
 field availability and validity presentation, page and action availability policy, and any
@@ -59,26 +65,65 @@ each member as a broad section.
 
 A page carries a stable page identifier, display title, breadcrumb path metadata, optional back target, ordered rows, and optional page-level actions. Root pages render a single page title. Subpages render breadcrumb text shaped from the page path and a back affordance when the host model supplies a back target.
 
-Rows remain the detail content for a page. Page detail rows are statically bounded to 32 rows per page and the crate full-renders the selected page's detail rows within that bound. Hosts with growing collections must model them as subpages or page-local split lists rather than as an unbounded detail-row sequence. A page may additionally carry an optional page-local leading split list rendered beside those detail rows inside the selected page body. Split-list items carry stable item identifiers, labels, optional subtext, host-supplied selected presentation state, and optional app-neutral preview styling hints such as font family, font size, font weight, foreground color, background color, and border color.
+Rows remain the detail content for a page. Page detail rows are statically bounded to 32 rows per
+page and the crate full-renders the selected page's detail rows within that bound. Hosts with
+growing collections must model them as subpages or page-local split lists rather than as an
+unbounded detail-row sequence. A page may additionally carry one revision-bound paged split-list
+source rendered beside those detail rows inside the selected page body. Every page-local split list
+uses this source boundary; there is no complete resident or nonpaged split-list variant. Realized
+items carry logical positions, stable item identifiers, labels, optional subtext, and optional
+app-neutral preview styling hints such as font family, font size, font weight, foreground color,
+background color, and border color. Selected presentation is compact source state containing the
+selected stable item identity and last known logical position, not item-local state.
 
 A paged split-list source binds a stable source identity, source generation, source revision,
 logical item count, and fixed per-page item and decoded-byte limits. Each page request carries the
-complete source key, one bounded logical range, and a unique request identity. Each result repeats
-that key and request identity and returns either the exact contiguous fragment for that range or a
-typed failure or cancellation; every returned item carries its stable item identifier and logical
+complete source key, one bounded logical range, and a pager-issued request identity. Pager-issued
+identities are nonzero, monotonically increasing, and never reused during that pager lifetime;
+public request construction also supports exact host echo and contract testing without promising
+that arbitrary caller-chosen identities satisfy the issuance invariant. Each result repeats the
+key, request identity, and range and returns either the exact contiguous fragment for that range or
+a typed failure or cancellation; every returned item carries its stable item identifier and logical
 position. A source never reports a shortened logical total or an oversized page as successful.
 
 The widget accepts a result only while its owning page, complete source key, request identity, and
-requested range are all current. A page change, source rebind, source-generation or revision
-replacement, window hide, or window release cancels affected requests and releases their retained
-pages and request state. A completion for cancelled or superseded work is obsolete and cannot
-change items, selection, focus, popup anchors, scroll geometry, or diagnostics other than a
-content-free stale-result count. Pending, failed, cancelled, and obsolete request outcomes remain
-distinct; none is interpreted as an empty page. A failure retains only already coherent pages from
-the same complete source key and exposes bounded host-supplied unavailable feedback for the missing
-range rather than combining generations or collecting the whole source.
+requested range are all current. Page change, source rebind, generation or revision replacement,
+settings-window hide, and settings-window widget release cancel each affected exposed request
+exactly once, release each retained ready page exactly once, and discard their request state.
+Request publication and result completion remain correct when host callbacks synchronously cause
+another demand, refresh, hide, or release. A noncurrent completion is stale-only exactly when its
+identity was issued earlier by this pager, including after arbitrary later requests; an otherwise
+current completion carrying an identity this pager never issued is a typed request-identity
+mismatch. Obsolete completion cannot change items, selection, focus, popup anchors, scroll geometry,
+request state, or diagnostics other than the content-free stale-result count. Pending, failed,
+cancelled, and obsolete request outcomes remain distinct; none is interpreted as an empty page. A
+failure retains only already coherent pages from the same complete source key and exposes bounded
+host-supplied unavailable feedback for the missing range rather than combining generations or
+collecting the whole source.
 
-Page-local split lists are selector surfaces with bounded render work. A split list with many items renders only the visible fixed-height row window plus a small overscan region, while preserving total scroll extent, stable item identifiers, selected item presentation, selection events, and valid scroll position across ordinary host model refreshes. When a refreshed model reorders items or changes the item count, the split list reconciles by the selected item's stable identifier and current index: it reveals a selected item whose index moved outside the viewport, preserves already valid scroll positions, and clamps stale offsets to the current item extent.
+Page-local split lists are selector surfaces with bounded render work. They retain only pages needed
+for the visible fixed-height row window and bounded overscan while preserving total scroll extent,
+compact selected and focused identities, selection events, and valid scroll position across
+coherent refreshes. Page turnover must continue making requested visible and overscan positions
+reachable even when that window intersects more logical page fragments than the fixed resident-page
+cap; superseded pages and requests are released or cancelled rather than raising the cap.
+
+Focused identity is compact pager state independent of page residency. Moving focus to an unloaded
+logical position reveals and requests it; once that position is realized, the pager adopts the
+row's stable identity and keeps it even if that page later leaves residency. A later coherent
+same-source refresh sends an exact bounded probe for that identity: `Found` moves and reveals focus
+at the returned logical position, while `Removed` moves focus to the nearest surviving logical
+position and adopts that row's identity when it is realized. A newer user focus action supersedes
+any older in-flight focus probe, so the older completion may settle its page but cannot overwrite
+the newer focus target. Focus-resolution validation uses all coherent resident pages: `Found(A)` is
+rejected if any resident page proves the identity at another position, and `Removed` is rejected if
+any resident page contains the identity. These proofs remain bounded by the fixed resident-page
+cap.
+
+When the selected page has a split source, its split-list container participates once in the
+settings window's ordinary forward and reverse focus traversal. Split previous, split next, and
+activation commands operate only while that container owns focus; pointer selection also moves
+focus to it.
 
 Rows carry stable identifiers, display labels, optional secondary label-side subtext, optional
 modified state, string values for field rows, optional validation or status messages, a row kind,
@@ -129,7 +174,12 @@ The right pane renders exactly one selected page at a time. Hosts select the act
 
 When the selected page identifier changes, the right-pane detail scroll resets to the top, page-local transient popups close, and keyboard focus moves to the first text-capable field on the new selected page. If the new selected page has no text-capable field, focus remains on the settings panel rather than on a field from the previous page. Same-page model refreshes preserve detail scroll, retained field state, and focus where the referenced controls still exist.
 
-Page-local split-list selection is app-neutral. Selecting a split-list item emits an event containing the owning page identifier and item identifier. The host decides whether to accept that local selection and supplies the next presentation model with updated selected item state and detail rows.
+Page-local split-list selection is app-neutral. Pointer activation revalidates its captured owning
+page, complete source key, logical position, and stable item identity against the current pager
+immediately before moving focus or emitting selection. A stale activation emits nothing. A current
+selection emits an event containing the owning page identifier and item identifier. The host decides
+whether to accept that local selection and supplies the next presentation model with updated compact
+source selection state and detail rows.
 
 Subpage navigation is app-neutral. Navigation rows and breadcrumb or back affordances emit page-navigation events with stable target page identifiers. The host decides whether to accept the navigation and supplies the next presentation model.
 

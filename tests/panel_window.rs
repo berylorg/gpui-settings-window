@@ -5,11 +5,13 @@ use gpui::AppContext as _;
 use gpui_settings_window::{
     MAX_PAGE_DETAIL_ROWS, RgbColor, SettingsBreadcrumbSegment, SettingsChoiceOption,
     SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction, SettingsPageActionId,
-    SettingsPageActionPriority, SettingsPageId, SettingsPageSplit, SettingsPageSplitItem,
-    SettingsPageSplitItemId, SettingsPanel, SettingsRow, SettingsRowAction, SettingsRowActionId,
-    SettingsRowDetailField, SettingsSavedColorSwatch, SettingsSection, SettingsSectionId,
-    SettingsWindowEvent, SettingsWindowModel, SettingsWindowOpenDisposition, SettingsWindowOptions,
-    SettingsWindowTheme, open_settings_window,
+    SettingsPageActionPriority, SettingsPageId, SettingsPageSplitItem, SettingsPageSplitItemId,
+    SettingsPageSplitPageResult, SettingsPageSplitSelection, SettingsPageSplitSource,
+    SettingsPageSplitSourceKey, SettingsPageSplitWork, SettingsPageSplitWorkReceiver,
+    SettingsPanel, SettingsRow, SettingsRowAction, SettingsRowActionId, SettingsRowDetailField,
+    SettingsSavedColorSwatch, SettingsSection, SettingsSectionId, SettingsWindowEvent,
+    SettingsWindowHandle, SettingsWindowModel, SettingsWindowOpenDisposition,
+    SettingsWindowOptions, SettingsWindowTheme, open_settings_window,
 };
 
 fn settings_model(selected_section: &str, font_value: &str) -> SettingsWindowModel {
@@ -166,17 +168,16 @@ fn settings_model_with_same_section_text_pages(selected_page: &str) -> SettingsW
     model
 }
 
-fn settings_model_with_local_split() -> SettingsWindowModel {
+fn settings_model_with_paged_split() -> SettingsWindowModel {
     SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
             SettingsPage::new("appearance", "Appearance")
-                .with_local_split(
-                    SettingsPageSplit::new()
-                        .with_item(
-                            SettingsPageSplitItem::new("default", "Default").with_selected(true),
-                        )
-                        .with_item(SettingsPageSplitItem::new("large", "Large")),
-                )
+                .with_paged_split_source(split_source(
+                    "appearance-split",
+                    1,
+                    2,
+                    Some(("default".to_owned(), 0)),
+                ))
                 .with_row(SettingsRow::new(
                     "font_size",
                     "Font size",
@@ -192,11 +193,7 @@ fn settings_model_with_unselected_local_split() -> SettingsWindowModel {
     SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
             SettingsPage::new("appearance", "Appearance")
-                .with_local_split(
-                    SettingsPageSplit::new()
-                        .with_item(SettingsPageSplitItem::new("default", "Default"))
-                        .with_item(SettingsPageSplitItem::new("large", "Large")),
-                )
+                .with_paged_split_source(split_source("appearance-split", 1, 2, None))
                 .with_row(SettingsRow::new(
                     "font_size",
                     "Font size",
@@ -209,16 +206,21 @@ fn settings_model_with_unselected_local_split() -> SettingsWindowModel {
 }
 
 fn settings_model_with_two_split_pages(selected_page: &str) -> SettingsWindowModel {
-    let split = || {
-        SettingsPageSplit::new()
-            .with_item(SettingsPageSplitItem::new("default", "Default").with_selected(true))
-    };
-    let mut model = SettingsWindowModel::new(vec![
-        SettingsSection::new("appearance", "Appearance")
-            .with_root_page(SettingsPage::new("appearance", "Appearance").with_local_split(split()))
-            .with_page(SettingsPage::new("alternate", "Alternate").with_local_split(split())),
-    ])
-    .expect("valid two-split-page model");
+    let mut model =
+        SettingsWindowModel::new(vec![
+            SettingsSection::new("appearance", "Appearance")
+                .with_root_page(
+                    SettingsPage::new("appearance", "Appearance").with_paged_split_source(
+                        split_source("appearance-split", 1, 1, Some(("default".to_owned(), 0))),
+                    ),
+                )
+                .with_page(
+                    SettingsPage::new("alternate", "Alternate").with_paged_split_source(
+                        split_source("alternate-split", 1, 1, Some(("default".to_owned(), 0))),
+                    ),
+                ),
+        ])
+        .expect("valid two-split-page model");
     model
         .select_page(selected_page)
         .expect("selected split page should exist");
@@ -229,19 +231,16 @@ fn settings_model_with_long_local_split(
     item_count: usize,
     selected_index: usize,
 ) -> SettingsWindowModel {
-    let mut split = SettingsPageSplit::new();
-    for index in 0..item_count {
-        split = split.with_item(
-            SettingsPageSplitItem::new(format!("role.{index:03}"), format!("Role {index:03}"))
-                .with_subtext("static parent: app.window")
-                .with_selected(index == selected_index),
-        );
-    }
-
     SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
             SettingsPage::new("appearance", "Appearance")
-                .with_local_split(split)
+                .with_paged_split_source(split_source(
+                    "roles",
+                    item_count as u64,
+                    item_count,
+                    (selected_index < item_count)
+                        .then(|| (format!("role.{selected_index:03}"), selected_index)),
+                ))
                 .with_row(SettingsRow::new(
                     "font_size",
                     "Font size",
@@ -253,23 +252,25 @@ fn settings_model_with_long_local_split(
     .expect("valid settings model")
 }
 
-fn settings_model_with_local_split_order(
+fn settings_model_with_paged_split_order(
     item_indices: &[usize],
     selected_item_index: usize,
 ) -> SettingsWindowModel {
-    let mut split = SettingsPageSplit::new();
-    for index in item_indices {
-        split = split.with_item(
-            SettingsPageSplitItem::new(format!("role.{index:03}"), format!("Role {index:03}"))
-                .with_subtext("static parent: app.window")
-                .with_selected(*index == selected_item_index),
-        );
-    }
+    let selected_position = item_indices
+        .iter()
+        .position(|index| *index == selected_item_index)
+        .expect("selected item belongs to order");
+    let revision = item_indices.first().copied().unwrap_or_default() as u64 + 1;
 
     SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
             SettingsPage::new("appearance", "Appearance")
-                .with_local_split(split)
+                .with_paged_split_source(split_source(
+                    "roles",
+                    revision,
+                    item_indices.len(),
+                    Some((format!("role.{selected_item_index:03}"), selected_position)),
+                ))
                 .with_row(SettingsRow::new(
                     "font_size",
                     "Font size",
@@ -279,6 +280,69 @@ fn settings_model_with_local_split_order(
         ),
     ])
     .expect("valid settings model")
+}
+
+fn split_source(
+    source_id: &str,
+    revision: u64,
+    item_count: usize,
+    selected: Option<(String, usize)>,
+) -> SettingsPageSplitSource {
+    let source = SettingsPageSplitSource::new(
+        SettingsPageSplitSourceKey::new(source_id, 1, revision),
+        item_count,
+        16,
+        16 * 1024,
+    );
+    match selected {
+        Some((item_id, position)) => {
+            source.with_selected(SettingsPageSplitSelection::new(item_id, position))
+        }
+        None => source,
+    }
+}
+
+fn fulfill_visible_split_pages(
+    handle: &SettingsWindowHandle,
+    logical_item_count: usize,
+    cx: &mut gpui::TestAppContext,
+) {
+    cx.run_until_parked();
+    loop {
+        let Some(work) = handle
+            .take_page_split_work(cx)
+            .expect("settings window should remain available")
+        else {
+            break;
+        };
+        let SettingsPageSplitWork::Page(request) = work else {
+            continue;
+        };
+        let items = request
+            .range()
+            .map(|position| {
+                let (item_id, label) = match position {
+                    0 if logical_item_count == 2 => ("default".to_owned(), "Default".to_owned()),
+                    1 if logical_item_count == 2 => ("large".to_owned(), "Large".to_owned()),
+                    _ => (format!("role.{position:03}"), format!("Role {position:03}")),
+                };
+                SettingsPageSplitItem::new(position, item_id, label)
+                    .with_subtext("static parent: app.window")
+            })
+            .collect();
+        let delivery = handle
+            .deliver_page_split_result(
+                cx,
+                SettingsPageSplitPageResult::ready(request, logical_item_count, items),
+            )
+            .expect("settings window should remain available")
+            .expect("exact page should be accepted");
+        assert_eq!(
+            delivery,
+            gpui_settings_window::SettingsPageSplitDelivery::Ready
+        );
+        cx.run_until_parked();
+    }
 }
 
 fn settings_model_with_detail_rows(row_count: usize) -> SettingsWindowModel {
@@ -823,7 +887,7 @@ fn emits_page_local_split_item_selection_events(cx: &mut gpui::TestAppContext) {
     let handle = cx.update(|cx| {
         open_settings_window(
             cx,
-            settings_model_with_local_split(),
+            settings_model_with_paged_split(),
             SettingsWindowOptions::default(),
             SettingsWindowOpenDisposition::Visible {
                 focus_requested: false,
@@ -832,6 +896,7 @@ fn emits_page_local_split_item_selection_events(cx: &mut gpui::TestAppContext) {
         .expect("settings window should open")
     });
     let view = handle.entity(cx).expect("root entity should exist");
+    fulfill_visible_split_pages(&handle, 2, cx);
     let events = Rc::new(RefCell::new(Vec::new()));
     let captured_events = events.clone();
 
@@ -880,7 +945,7 @@ fn split_scrollbar_unmounts_on_disappearance_and_remounts_with_a_new_owner(
     let handle = cx.update(|cx| {
         open_settings_window(
             cx,
-            settings_model_with_local_split(),
+            settings_model_with_paged_split(),
             SettingsWindowOptions::default(),
             SettingsWindowOpenDisposition::Visible {
                 focus_requested: false,
@@ -910,7 +975,7 @@ fn split_scrollbar_unmounts_on_disappearance_and_remounts_with_a_new_owner(
     assert_eq!(without_split.2, None);
 
     handle
-        .update_model(cx, settings_model_with_local_split())
+        .update_model(cx, settings_model_with_paged_split())
         .expect("model should update");
     let (next_navigation, next_content, next_split) = handle
         .window_handle()
@@ -933,7 +998,7 @@ fn split_scrollbar_activity_is_isolated_from_navigation_and_content(cx: &mut gpu
     let handle = cx.update(|cx| {
         open_settings_window(
             cx,
-            settings_model_with_local_split(),
+            settings_model_with_paged_split(),
             SettingsWindowOptions::default(),
             SettingsWindowOpenDisposition::Visible {
                 focus_requested: false,
@@ -1011,11 +1076,13 @@ fn changing_between_split_pages_retires_the_old_split_generation(cx: &mut gpui::
 }
 
 #[gpui::test]
-fn releasing_panel_tears_down_all_scrollbar_states(cx: &mut gpui::TestAppContext) {
+fn releasing_panel_keeps_split_teardown_work_drainable_and_tears_down_scrollbars(
+    cx: &mut gpui::TestAppContext,
+) {
     let handle = cx.update(|cx| {
         open_settings_window(
             cx,
-            settings_model_with_local_split(),
+            settings_model_with_paged_split(),
             SettingsWindowOptions::default(),
             SettingsWindowOpenDisposition::Visible {
                 focus_requested: false,
@@ -1023,14 +1090,51 @@ fn releasing_panel_tears_down_all_scrollbar_states(cx: &mut gpui::TestAppContext
         )
         .expect("settings window should open")
     });
-    let (panel, weak_panel, states) = handle
+    let (panel, weak_panel, states, retained_receiver, resident, pending) = handle
         .window_handle()
         .update(cx, |_, window, cx| {
-            let panel =
-                cx.new(|cx| SettingsPanel::new(settings_model_with_local_split(), window, cx));
+            let receiver = SettingsPageSplitWorkReceiver::new();
+            let panel = cx.new(|cx| {
+                SettingsPanel::new(
+                    settings_model_with_long_local_split(176, 0),
+                    receiver.clone(),
+                    window,
+                    cx,
+                )
+            });
             let weak_panel = panel.downgrade();
             let states = panel.read(cx).scrollbar_states_for_test();
-            (panel, weak_panel, states)
+            panel.update(cx, |panel, _| panel.demand_page_split_range_for_test(0..24));
+            let resident = match receiver.take_work().expect("first exact page request") {
+                SettingsPageSplitWork::Page(request) => request,
+                work => panic!("expected first page request, got {work:?}"),
+            };
+            let pending = match receiver.take_work().expect("second exact page request") {
+                SettingsPageSplitWork::Page(request) => request,
+                work => panic!("expected second page request, got {work:?}"),
+            };
+            let items = resident
+                .range()
+                .map(|position| {
+                    SettingsPageSplitItem::new(
+                        position,
+                        format!("release-{position}"),
+                        format!("Release {position}"),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                panel
+                    .update(cx, |panel, cx| {
+                        panel.deliver_page_split_result(
+                            SettingsPageSplitPageResult::ready(resident.clone(), 176, items),
+                            cx,
+                        )
+                    })
+                    .unwrap(),
+                gpui_settings_window::SettingsPageSplitDelivery::Ready
+            );
+            (panel, weak_panel, states, receiver, resident, pending)
         })
         .expect("standalone panel should be constructible in the live window");
     drop(panel);
@@ -1041,6 +1145,28 @@ fn releasing_panel_tears_down_all_scrollbar_states(cx: &mut gpui::TestAppContext
     assert_eq!(states.0.current_owner(), None);
     assert_eq!(states.1.current_owner(), None);
     assert_eq!(states.2.current_owner(), None);
+    let mut teardown_work = Vec::new();
+    while let Some(work) = retained_receiver.take_work() {
+        teardown_work.push(work);
+    }
+    assert_eq!(
+        teardown_work
+            .iter()
+            .filter(
+                |work| matches!(work, SettingsPageSplitWork::Release(request) if request == &resident)
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        teardown_work
+            .iter()
+            .filter(
+                |work| matches!(work, SettingsPageSplitWork::Cancel(request) if request == &pending)
+            )
+            .count(),
+        1
+    );
 }
 
 #[gpui::test]
@@ -1110,6 +1236,14 @@ fn settings_window_diagnostics_report_bounded_content_free_surfaces(cx: &mut gpu
     );
     assert!(split.rendered_row_count < split.total_row_count);
     assert_eq!(split.row_height_strategy, "fixed_height_windowed");
+    let pager = diagnostics
+        .split_pager
+        .as_ref()
+        .expect("paged split diagnostics should be present");
+    assert_eq!(pager.resident_page_count, 0);
+    assert_eq!(pager.resident_item_count, 0);
+    assert!(pager.pending_request_count <= 1);
+    assert_eq!(pager.stale_result_count, 0);
 
     let debug = format!("{diagnostics:?}");
     assert!(!debug.contains("Role 000"));
@@ -1244,7 +1378,7 @@ fn moved_selected_page_local_split_item_is_revealed_after_refresh(cx: &mut gpui:
     let handle = cx.update(|cx| {
         open_settings_window(
             cx,
-            settings_model_with_local_split_order(&initial_order, 150),
+            settings_model_with_paged_split_order(&initial_order, 150),
             SettingsWindowOptions::default(),
             SettingsWindowOpenDisposition::Visible {
                 focus_requested: false,
@@ -1270,7 +1404,7 @@ fn moved_selected_page_local_split_item_is_revealed_after_refresh(cx: &mut gpui:
     handle
         .update_model(
             cx,
-            settings_model_with_local_split_order(&refreshed_order, 150),
+            settings_model_with_paged_split_order(&refreshed_order, 150),
         )
         .expect("sync should succeed");
 
@@ -1543,7 +1677,12 @@ fn multiline_fields_sync_and_emit_plain_text(cx: &mut gpui::TestAppContext) {
 #[gpui::test]
 fn multiline_field_enter_edits_text_instead_of_accepting(cx: &mut gpui::TestAppContext) {
     let (panel, cx) = cx.add_window_view(|window, cx| {
-        let mut panel = SettingsPanel::new(settings_model_with_multiline("Line one"), window, cx);
+        let mut panel = SettingsPanel::new(
+            settings_model_with_multiline("Line one"),
+            SettingsPageSplitWorkReceiver::new(),
+            window,
+            cx,
+        );
         panel.focus_field(&SettingsFieldId::from("instructions"), window, cx);
         panel
     });
@@ -1588,6 +1727,7 @@ fn settings_text_input_uses_configured_undo_byte_limit(cx: &mut gpui::TestAppCon
         let mut panel = SettingsPanel::new_with_options(
             settings_model_with_multiline(""),
             SettingsWindowOptions::default().with_text_input_undo_byte_limit(3),
+            SettingsPageSplitWorkReceiver::new(),
             window,
             cx,
         );

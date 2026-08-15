@@ -15,7 +15,8 @@ pub use actions::{
 pub(crate) use element_id::element_id_suffix;
 pub use ids::{
     SettingsFieldId, SettingsPageActionId, SettingsPageCustomBodyId, SettingsPageId,
-    SettingsPageSplitItemId, SettingsRowActionId, SettingsSavedColorSwatchId, SettingsSectionId,
+    SettingsPageSplitItemId, SettingsPageSplitSourceId, SettingsRowActionId,
+    SettingsSavedColorSwatchId, SettingsSectionId,
 };
 pub use page::{
     SettingsBreadcrumbSegment, SettingsPage, SettingsPageBodyLayout, SettingsPageCustomBody,
@@ -23,7 +24,14 @@ pub use page::{
 pub use row::{
     SettingsChoiceOption, SettingsFieldKind, SettingsRow, SettingsRowDetailField, SettingsRowKind,
 };
-pub use split::{SettingsPageSplit, SettingsPageSplitItem, SettingsPageSplitItemPreviewStyle};
+pub use split::{
+    MAX_PAGE_SPLIT_ACTIVE_PAGES, MAX_PAGE_SPLIT_WORK_ITEMS, SettingsPageSplitDelivery,
+    SettingsPageSplitDeliveryError, SettingsPageSplitFocusProbe, SettingsPageSplitFocusResolution,
+    SettingsPageSplitItem, SettingsPageSplitItemPreviewStyle, SettingsPageSplitPageFailure,
+    SettingsPageSplitPageOutcome, SettingsPageSplitPageRequest, SettingsPageSplitPageResult,
+    SettingsPageSplitRequestId, SettingsPageSplitSelection, SettingsPageSplitSource,
+    SettingsPageSplitSourceKey, SettingsPageSplitWork, SettingsPageSplitWorkReceiver,
+};
 
 /// Maximum number of detail rows allowed on one settings page.
 pub const MAX_PAGE_DETAIL_ROWS: usize = 32;
@@ -505,26 +513,20 @@ pub enum SettingsWindowError {
         /// Duplicate action identifier.
         action_id: SettingsPageActionId,
     },
-    /// A page-local split-list item has an empty identifier.
-    EmptyPageSplitItemId {
-        /// Page identifier for the page that owns the invalid item.
+    /// A paged split source has an empty stable identity.
+    EmptyPageSplitSourceId { page_id: SettingsPageId },
+    /// A paged split source declares a zero hard page limit.
+    InvalidPageSplitLimits { page_id: SettingsPageId },
+    /// The compact selected item has an empty stable identity.
+    EmptyPageSplitSelectionId { page_id: SettingsPageId },
+    /// The compact selected item lies outside the logical source extent.
+    PageSplitSelectionOutOfBounds {
         page_id: SettingsPageId,
+        logical_position: usize,
     },
     /// A page custom body has an empty identifier.
     EmptyPageCustomBodyId {
         /// Page that owns the invalid custom body.
-        page_id: SettingsPageId,
-    },
-    /// More than one page-local split-list item uses the same identifier on one page.
-    DuplicatePageSplitItemId {
-        /// Page identifier for the page that owns the duplicate item.
-        page_id: SettingsPageId,
-        /// Duplicate item identifier.
-        item_id: SettingsPageSplitItemId,
-    },
-    /// More than one page-local split-list item is marked selected on one page.
-    MultiplePageSplitItemsSelected {
-        /// Page identifier for the page that owns the invalid selected state.
         page_id: SettingsPageId,
     },
     /// A field identifier does not exist in the model.
@@ -637,28 +639,29 @@ impl fmt::Display for SettingsWindowError {
                     "duplicate settings page action id `{action_id}` for `{page_id}`"
                 )
             }
-            Self::EmptyPageSplitItemId { page_id } => {
-                write!(
-                    formatter,
-                    "settings page split item id is empty for `{page_id}`"
-                )
-            }
+            Self::EmptyPageSplitSourceId { page_id } => write!(
+                formatter,
+                "settings page split source id is empty for `{page_id}`"
+            ),
+            Self::InvalidPageSplitLimits { page_id } => write!(
+                formatter,
+                "settings page split source limits are invalid for `{page_id}`"
+            ),
+            Self::EmptyPageSplitSelectionId { page_id } => write!(
+                formatter,
+                "settings page split selection id is empty for `{page_id}`"
+            ),
+            Self::PageSplitSelectionOutOfBounds {
+                page_id,
+                logical_position,
+            } => write!(
+                formatter,
+                "settings page split selection position {logical_position} is outside `{page_id}`"
+            ),
             Self::EmptyPageCustomBodyId { page_id } => {
                 write!(
                     formatter,
                     "settings page custom body id is empty for `{page_id}`"
-                )
-            }
-            Self::DuplicatePageSplitItemId { page_id, item_id } => {
-                write!(
-                    formatter,
-                    "duplicate settings page split item id `{item_id}` for `{page_id}`"
-                )
-            }
-            Self::MultiplePageSplitItemsSelected { page_id } => {
-                write!(
-                    formatter,
-                    "settings page `{page_id}` has multiple selected split items"
                 )
             }
             Self::MissingField(field_id) => {
@@ -807,32 +810,29 @@ fn validate_page(
         }
     }
 
-    if let Some(split) = page.local_split() {
-        let mut item_ids = HashSet::new();
-        let mut selected_count = 0;
-        for item in split.items() {
-            if item.item_id().as_str().is_empty() {
-                return Err(SettingsWindowError::EmptyPageSplitItemId {
-                    page_id: page.page_id().clone(),
-                });
-            }
-
-            if !item_ids.insert(item.item_id().clone()) {
-                return Err(SettingsWindowError::DuplicatePageSplitItemId {
-                    page_id: page.page_id().clone(),
-                    item_id: item.item_id().clone(),
-                });
-            }
-
-            if item.is_selected() {
-                selected_count += 1;
-            }
-        }
-
-        if selected_count > 1 {
-            return Err(SettingsWindowError::MultiplePageSplitItemsSelected {
+    if let Some(source) = page.paged_split_source() {
+        if source.key().source_id().as_str().is_empty() {
+            return Err(SettingsWindowError::EmptyPageSplitSourceId {
                 page_id: page.page_id().clone(),
             });
+        }
+        if source.max_page_items() == 0 || source.max_page_decoded_bytes() == 0 {
+            return Err(SettingsWindowError::InvalidPageSplitLimits {
+                page_id: page.page_id().clone(),
+            });
+        }
+        if let Some(selected) = source.selected() {
+            if selected.item_id().as_str().is_empty() {
+                return Err(SettingsWindowError::EmptyPageSplitSelectionId {
+                    page_id: page.page_id().clone(),
+                });
+            }
+            if selected.logical_position() >= source.logical_item_count() {
+                return Err(SettingsWindowError::PageSplitSelectionOutOfBounds {
+                    page_id: page.page_id().clone(),
+                    logical_position: selected.logical_position(),
+                });
+            }
         }
     }
 

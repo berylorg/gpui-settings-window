@@ -118,7 +118,7 @@ impl SettingsPanel {
             "navigation scrollbar must be unmounted before remount"
         );
         self.scrollbars_mounted = true;
-        if self.model.selected_page().local_split().is_some() {
+        if self.model.selected_page().paged_split_source().is_some() {
             self.mount_split_scrollbar(cx);
         }
         cx.notify();

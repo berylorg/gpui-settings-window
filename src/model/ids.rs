@@ -57,6 +57,12 @@ stable_id!(
 );
 
 stable_id!(
+    /// Stable identity for a host-owned paged split-list source.
+    SettingsPageSplitSourceId,
+    "settings page split source"
+);
+
+stable_id!(
     /// Stable identifier for a page-owned custom body region.
     SettingsPageCustomBodyId,
     "settings page custom body"

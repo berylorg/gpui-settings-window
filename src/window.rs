@@ -11,8 +11,9 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNA, ShowWindowAsync};
 
 use crate::{
-    SettingsPanel, SettingsWindowDiagnostics, SettingsWindowEvent, SettingsWindowModel,
-    SettingsWindowOptions,
+    SettingsPageSplitDelivery, SettingsPageSplitDeliveryError, SettingsPageSplitPageResult,
+    SettingsPageSplitWork, SettingsPageSplitWorkReceiver, SettingsPanel, SettingsWindowDiagnostics,
+    SettingsWindowEvent, SettingsWindowModel, SettingsWindowOptions,
 };
 
 mod test_support;
@@ -30,15 +31,24 @@ pub enum SettingsWindowOpenDisposition {
 }
 
 /// Handle to a preheated settings window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsWindowHandle {
     handle: WindowHandle<SettingsWindowView>,
+    split_work_receiver: SettingsPageSplitWorkReceiver,
 }
 
 impl SettingsWindowHandle {
     /// Returns the underlying GPUI window handle.
     pub fn window_handle(&self) -> WindowHandle<SettingsWindowView> {
         self.handle
+    }
+
+    /// Returns a clone-stable receiver for all split `Page`, `Cancel`, and `Release` work.
+    ///
+    /// Retain this receiver independently when destroying the window: teardown work remains
+    /// drainable after the panel entity is released.
+    pub fn page_split_work_receiver(&self) -> SettingsPageSplitWorkReceiver {
+        self.split_work_receiver.clone()
     }
 
     /// Returns the root settings-window entity.
@@ -148,6 +158,39 @@ impl SettingsWindowHandle {
         self.handle
             .read_with(cx, |view, cx| view.diagnostics_snapshot(cx))
     }
+
+    /// Removes the next item from the same clone-stable receiver returned by
+    /// [`Self::page_split_work_receiver`].
+    ///
+    /// `Page` requires one exact terminal result through
+    /// [`Self::deliver_page_split_result`]; `Cancel` stops that exact host fetch; `Release`
+    /// discards host data retained for that exact page. Prefer the independent receiver when work
+    /// must remain drainable after window teardown.
+    pub fn take_page_split_work<C>(&self, _cx: &mut C) -> Result<Option<SettingsPageSplitWork>>
+    where
+        C: gpui::AppContext,
+    {
+        Ok(self.split_work_receiver.take_work())
+    }
+
+    /// Delivers one exact terminal paged split-source result.
+    ///
+    /// All repeated request facts, logical extent, limits, positions, identities, and optional
+    /// focus resolution are validated atomically. Malformed current work returns a typed error and
+    /// remains pending. A late cancelled or superseded result returns `Obsolete` and changes only
+    /// the content-free stale-result counter.
+    pub fn deliver_page_split_result<C>(
+        &self,
+        cx: &mut C,
+        result: SettingsPageSplitPageResult,
+    ) -> Result<std::result::Result<SettingsPageSplitDelivery, SettingsPageSplitDeliveryError>>
+    where
+        C: gpui::AppContext,
+    {
+        self.handle.update(cx, |view, _window, cx| {
+            view.deliver_page_split_result(result, cx)
+        })
+    }
 }
 
 /// Opens a dedicated settings window, optionally hidden for preheating.
@@ -167,6 +210,8 @@ pub fn open_settings_window(
     let title = options.title().to_owned();
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
     let panel_options = options.clone();
+    let split_work_receiver = SettingsPageSplitWorkReceiver::new();
+    let panel_split_work_receiver = split_work_receiver.clone();
     let window = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -179,7 +224,10 @@ pub fn open_settings_window(
             window.set_window_title(&title);
             let model = model.clone();
             let options = panel_options.clone();
-            cx.new(|cx| SettingsWindowView::new(model, visible, options, window, cx))
+            let split_work_receiver = panel_split_work_receiver.clone();
+            cx.new(|cx| {
+                SettingsWindowView::new(model, visible, options, split_work_receiver, window, cx)
+            })
         },
     )?;
 
@@ -189,7 +237,10 @@ pub fn open_settings_window(
         });
     }
 
-    Ok(SettingsWindowHandle { handle: window })
+    Ok(SettingsWindowHandle {
+        handle: window,
+        split_work_receiver,
+    })
 }
 
 /// Root GPUI view for a settings window.
@@ -207,18 +258,29 @@ impl SettingsWindowView {
         model: SettingsWindowModel,
         visible: bool,
         options: SettingsWindowOptions,
+        split_work_receiver: SettingsPageSplitWorkReceiver,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let settings_panel = cx
-            .new(|cx| SettingsPanel::new_with_options(model.clone(), options.clone(), window, cx));
+        let settings_panel = cx.new(|cx| {
+            SettingsPanel::new_with_options(
+                model.clone(),
+                options.clone(),
+                split_work_receiver,
+                window,
+                cx,
+            )
+        });
         cx.subscribe(&settings_panel, |_, _, event: &SettingsWindowEvent, cx| {
             cx.emit(event.clone())
         })
         .detach();
 
         if !visible {
-            settings_panel.update(cx, |panel, cx| panel.unmount_scrollbars(window, cx));
+            settings_panel.update(cx, |panel, cx| {
+                panel.suspend_page_split();
+                panel.unmount_scrollbars(window, cx);
+            });
         }
 
         let view = cx.entity().downgrade();
@@ -252,6 +314,16 @@ impl SettingsWindowView {
         self.settings_panel
             .read(cx)
             .diagnostics_snapshot(self.visible)
+    }
+
+    /// Delivers one exact terminal paged split-source result.
+    pub fn deliver_page_split_result(
+        &mut self,
+        result: SettingsPageSplitPageResult,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<SettingsPageSplitDelivery, SettingsPageSplitDeliveryError> {
+        self.settings_panel
+            .update(cx, |panel, cx| panel.deliver_page_split_result(result, cx))
     }
 
     /// Closes transient popups owned by the settings-window content.
@@ -316,9 +388,10 @@ impl SettingsWindowView {
         let was_visible = self.visible;
         self.sync_model(model, window, cx);
         if !was_visible {
-            let _ = self
-                .settings_panel
-                .update(cx, |panel, cx| panel.mount_scrollbars(cx));
+            let _ = self.settings_panel.update(cx, |panel, cx| {
+                panel.resume_page_split(cx);
+                panel.mount_scrollbars(cx);
+            });
         }
         self.visible = true;
         show_native_settings_window(window);
@@ -330,9 +403,10 @@ impl SettingsWindowView {
     /// Hides the OS window but keeps the GPUI window and panel entities alive.
     pub fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_transient_popups(cx);
-        let _ = self
-            .settings_panel
-            .update(cx, |panel, cx| panel.unmount_scrollbars(window, cx));
+        let _ = self.settings_panel.update(cx, |panel, cx| {
+            panel.suspend_page_split();
+            panel.unmount_scrollbars(window, cx);
+        });
         self.visible = false;
         hide_native_settings_window(window);
         cx.notify();

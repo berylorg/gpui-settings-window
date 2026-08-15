@@ -2,11 +2,11 @@ use gpui::IntoElement;
 use gpui_settings_window::{
     MAX_PAGE_DETAIL_ROWS, MAX_SAVED_COLOR_SWATCHES, RgbColor, SettingsBreadcrumbSegment,
     SettingsChoiceOption, SettingsFieldId, SettingsFieldKind, SettingsPage, SettingsPageAction,
-    SettingsPageActionPriority, SettingsPageId, SettingsPageSplit, SettingsPageSplitItem,
-    SettingsPageSplitItemId, SettingsPageSplitItemPreviewStyle, SettingsRow, SettingsRowAction,
-    SettingsRowDetailField, SettingsSavedColorSwatch, SettingsSavedColorSwatchId, SettingsSection,
-    SettingsWindowError, SettingsWindowModel, SettingsWindowOptions, SettingsWindowOptionsError,
-    SettingsWindowTheme,
+    SettingsPageActionPriority, SettingsPageId, SettingsPageSplitItem,
+    SettingsPageSplitItemPreviewStyle, SettingsPageSplitSelection, SettingsPageSplitSource,
+    SettingsPageSplitSourceKey, SettingsRow, SettingsRowAction, SettingsRowDetailField,
+    SettingsSavedColorSwatch, SettingsSavedColorSwatchId, SettingsSection, SettingsWindowError,
+    SettingsWindowModel, SettingsWindowOptions, SettingsWindowOptionsError, SettingsWindowTheme,
 };
 
 #[test]
@@ -362,27 +362,18 @@ fn pages_and_subpages_are_part_of_the_presentation_model() {
 }
 
 #[test]
-fn pages_may_carry_page_local_split_items_without_changing_detail_rows() {
-    let split = SettingsPageSplit::new()
-        .with_item(
-            SettingsPageSplitItem::new("default", "Default")
-                .with_subtext("Built in")
-                .with_selected(true)
-                .with_preview_style(
-                    SettingsPageSplitItemPreviewStyle::default()
-                        .with_font_family("Inter")
-                        .with_font_size(13)
-                        .with_font_weight(600)
-                        .with_foreground(RgbColor::new(17, 18, 19))
-                        .with_background(RgbColor::new(240, 241, 242))
-                        .with_border(RgbColor::new(90, 91, 92)),
-                ),
-        )
-        .with_item(SettingsPageSplitItem::new("large", "Large"));
+fn pages_may_carry_paged_split_sources_without_changing_detail_rows() {
+    let split = SettingsPageSplitSource::new(
+        SettingsPageSplitSourceKey::new("themes", 2, 7),
+        2_000,
+        32,
+        16 * 1024,
+    )
+    .with_selected(SettingsPageSplitSelection::new("default", 18));
     let model = SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
             SettingsPage::new("appearance", "Appearance")
-                .with_local_split(split)
+                .with_paged_split_source(split)
                 .with_row(SettingsRow::new(
                     "font_size",
                     "Font size",
@@ -393,27 +384,32 @@ fn pages_may_carry_page_local_split_items_without_changing_detail_rows() {
     ])
     .expect("model should validate");
     let page = model.selected_page();
-    let split = page.local_split().expect("page should carry local split");
+    let split = page
+        .paged_split_source()
+        .expect("page should carry paged split source");
 
     assert_eq!(model.selected_rows()[0].field_id().as_str(), "font_size");
-    assert_eq!(split.selected_item().unwrap().item_id().as_str(), "default");
-    assert_eq!(split.items()[0].subtext(), Some("Built in"));
-    assert_eq!(
-        split.items()[0].preview_style().unwrap().font_family(),
-        Some("Inter")
-    );
-    assert_eq!(
-        split.items()[0].preview_style().unwrap().font_size(),
-        Some(13)
-    );
-    assert_eq!(
-        split.items()[0].preview_style().unwrap().font_weight(),
-        Some(600)
-    );
-    assert_eq!(
-        split.items()[0].preview_style().unwrap().foreground(),
-        Some(RgbColor::new(17, 18, 19)),
-    );
+    assert_eq!(split.logical_item_count(), 2_000);
+    assert_eq!(split.max_page_items(), 32);
+    assert_eq!(split.max_page_decoded_bytes(), 16 * 1024);
+    assert_eq!(split.selected().unwrap().item_id().as_str(), "default");
+    assert_eq!(split.selected().unwrap().logical_position(), 18);
+
+    let item = SettingsPageSplitItem::new(18, "default", "Default")
+        .with_subtext("Built in")
+        .with_preview_style(
+            SettingsPageSplitItemPreviewStyle::default()
+                .with_font_family("Inter")
+                .with_font_size(13)
+                .with_font_weight(600)
+                .with_foreground(RgbColor::new(17, 18, 19))
+                .with_background(RgbColor::new(240, 241, 242))
+                .with_border(RgbColor::new(90, 91, 92)),
+        );
+    assert_eq!(item.logical_position(), 18);
+    assert_eq!(item.subtext(), Some("Built in"));
+    assert_eq!(item.preview_style().unwrap().font_family(), Some("Inter"));
+    assert_eq!(item.preview_style().unwrap().font_size(), Some(13));
 }
 
 #[test]
@@ -453,47 +449,54 @@ fn pages_may_request_stacked_custom_body_without_changing_detail_rows() {
             .height_px(),
         144
     );
-    assert!(page.local_split().is_none());
+    assert!(page.paged_split_source().is_none());
     assert_eq!(model.selected_rows()[0].field_id().as_str(), "font_size");
 }
 
 #[test]
-fn rejects_duplicate_page_local_split_item_ids_per_page() {
+fn rejects_zero_paged_split_limits() {
     let result = SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
-            SettingsPage::new("appearance", "Appearance").with_local_split(
-                SettingsPageSplit::new()
-                    .with_item(SettingsPageSplitItem::new("default", "Default"))
-                    .with_item(SettingsPageSplitItem::new("default", "Duplicate")),
+            SettingsPage::new("appearance", "Appearance").with_paged_split_source(
+                SettingsPageSplitSource::new(
+                    SettingsPageSplitSourceKey::new("themes", 1, 1),
+                    10,
+                    0,
+                    1024,
+                ),
             ),
         ),
     ]);
 
     assert_eq!(
-        result.expect_err("duplicate split item should fail"),
-        SettingsWindowError::DuplicatePageSplitItemId {
+        result.expect_err("zero split limit should fail"),
+        SettingsWindowError::InvalidPageSplitLimits {
             page_id: SettingsPageId::from("appearance"),
-            item_id: SettingsPageSplitItemId::from("default"),
         },
     );
 }
 
 #[test]
-fn rejects_multiple_selected_page_local_split_items_per_page() {
+fn rejects_out_of_bounds_paged_split_selection() {
     let result = SettingsWindowModel::new(vec![
         SettingsSection::new("appearance", "Appearance").with_root_page(
-            SettingsPage::new("appearance", "Appearance").with_local_split(
-                SettingsPageSplit::new()
-                    .with_item(SettingsPageSplitItem::new("default", "Default").with_selected(true))
-                    .with_item(SettingsPageSplitItem::new("large", "Large").with_selected(true)),
+            SettingsPage::new("appearance", "Appearance").with_paged_split_source(
+                SettingsPageSplitSource::new(
+                    SettingsPageSplitSourceKey::new("themes", 1, 1),
+                    2,
+                    2,
+                    1024,
+                )
+                .with_selected(SettingsPageSplitSelection::new("large", 2)),
             ),
         ),
     ]);
 
     assert_eq!(
-        result.expect_err("multiple selected split items should fail"),
-        SettingsWindowError::MultiplePageSplitItemsSelected {
+        result.expect_err("out-of-bounds split selection should fail"),
+        SettingsWindowError::PageSplitSelectionOutOfBounds {
             page_id: SettingsPageId::from("appearance"),
+            logical_position: 2,
         },
     );
 }
@@ -793,18 +796,19 @@ fn theme_editor_scrolling_renders_only_selected_page_rows() {
 #[test]
 fn page_local_split_rendering_stays_inside_selected_page_body() {
     let render_source = include_str!("../src/panel/render.rs");
+    let panel_source = include_str!("../src/panel.rs");
 
     assert!(render_source.contains("render_page_body"));
-    assert!(render_source.contains("page.local_split().cloned()"));
+    assert!(render_source.contains("page.paged_split_source().cloned()"));
     assert!(render_source.contains("render_page_local_split_list"));
     assert!(render_source.contains("render_detail_rows_scroll(DetailRowsLayout::SplitDetail"));
-    assert!(render_source.contains("SettingsWindowEvent::PageSplitItemSelected"));
+    assert!(render_source.contains("select_split_item_from_pointer"));
+    assert!(panel_source.contains("SettingsWindowEvent::PageSplitItemSelected"));
     assert!(render_source.contains("PAGE_LOCAL_SPLIT_LIST_WIDTH"));
     assert!(render_source.contains("page_local_split_render_window"));
     assert!(render_source.contains("render_page_local_split_window"));
-    assert!(!render_source.contains(
-        "local_split.items().iter().cloned().map(|item| self.render_page_local_split_item"
-    ));
+    assert!(render_source.contains("self.split_pager.item_at(index)"));
+    assert!(render_source.contains("local_split.logical_item_count()"));
 }
 
 #[test]

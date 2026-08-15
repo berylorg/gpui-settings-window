@@ -27,14 +27,13 @@ Widgets:
 
 The widget contains a top-level settings OS window, a `SettingsWindowView`, a `SettingsPanel`, a title, a left section-navigation list, a selected-page header, a selected-page body, optional breadcrumb segments, optional page-local split list, optional stacked custom body region, detail rows, bottom OK/Apply/Cancel buttons, transient popups, scroll handles, and diagnostics counters.
 
-The split-list anatomy contains a scroll container, realized split items, an item label and optional
-subtext or preview for each realized item, bounded pending or unavailable range presentation, and a
-`scrollbar`.
-
-A page-local split list may use a paged item source keyed by stable source identity, source
-generation, and source revision. It contains a logical item count, stable item identities, bounded
-page and byte limits, uniquely identified range requests, and exact keyed results instead of a
-complete resident item collection.
+The optional split-list anatomy contains a scroll container, revision-bound paged source, compact
+source selection and focus state, realized split items, an item label and optional subtext or
+preview for each realized item, bounded pending or unavailable range presentation, and a
+`scrollbar`. Every page-local split list uses a source keyed by stable source identity, generation,
+and revision, with a logical item count, bounded page and byte limits, pager-issued range requests,
+and exact keyed results. It has no complete resident or nonpaged item-collection variant, and
+selection is not stored on realized items.
 
 The selected-page body is one of detail rows only, page-local split list plus detail rows, or stacked custom body plus detail rows.
 
@@ -52,7 +51,8 @@ available, host interaction gated, OK enabled, OK disabled, Apply enabled, Apply
 enabled, Cancel disabled, transient popup open, transient popup closed, navigation scroll active,
 content scroll active, split-list scroll active, split-page pending, split-page ready, split-page
 failed, split-page cancelled, split-page obsolete, split item normal, split item hover, split item
-focused, split item selected, split item unavailable, same-page model refresh, and page change.
+focused, split item selected, split item unavailable, same-page model refresh, page change,
+settings-window hide, and settings-window widget release.
 
 Page changes reset detail scroll, close transient popups, and focus the first text-capable field when possible. Same-page refresh preserves scroll and focus when possible.
 
@@ -87,21 +87,38 @@ Hosts may query and close transient popups without hiding the settings window or
 
 Paged split-list navigation requests only pages intersecting the visible range and bounded
 overscan. Each request binds the owning page, source identity, source generation, source revision,
-bounded logical range, and request identity. A result becomes ready only when all of those values
-still match the mounted source and the returned fragment satisfies the source's page and byte
-limits.
+bounded logical range, and pager-issued request identity. Pager-issued identities are nonzero,
+monotonic, and never reused during one pager lifetime. A result becomes ready only when all of
+those values still match the mounted source and the returned fragment satisfies the source's page
+and byte limits. When visible plus overscan demand intersects more one-item fragments than the
+resident-page cap, bounded page turnover continues until every demanded position can become
+reachable; the widget does not raise the cap or pin old pages.
 
 A typed page failure leaves the failed range unavailable with bounded host-supplied feedback and
 does not turn it into an empty range or mix it with another source key. Page change, source rebind,
-generation or revision replacement, window hide, and widget release cancel affected pending
-requests and release their pages and request state. Cancellation and failure are distinct terminal
-outcomes. Any later completion is obsolete and is discarded before it can alter split items,
-selection, focus, popup anchoring, scroll extent, or request state.
+generation or revision replacement, settings-window hide, and settings-window widget release
+cancel each affected exposed request exactly once, release each retained ready page exactly once,
+and discard its request state. Publication and completion are reentrant-safe when host activity
+synchronously causes more demand, refresh, hide, or release. Cancellation and failure are distinct
+terminal outcomes. A noncurrent completion is stale-only when this pager issued its identity; an
+otherwise current completion with a never-issued identity is a typed mismatch. Obsolete completion
+is discarded before it can alter split items, selection, focus, popup anchoring, scroll extent, or
+request state, and changes only the content-free stale-result count.
 
-Stable item identity preserves selection and the logical focus target across realization and
-coherent same-source refresh. Keyboard navigation reveals and requests the focused item when it is
-outside the realized range. If a refreshed source removes that identity, focus moves to the nearest
-surviving item in logical order, or to the split-list container when no item remains.
+Stable item identity preserves compact source selection and the logical focus target independently
+of page residency. Pointer activation revalidates its captured page, source key, logical position,
+and item identity against current pager state immediately before focus or event emission. Keyboard
+focus traversal includes the selected page's split-list container once, and split navigation
+reveals and requests an unloaded focused position. Realization adopts that row's stable identity;
+page eviction may release the row without discarding the compact identity. A later coherent refresh
+resolves an exact identity probe: `Found` reveals the resolved position and `Removed` moves focus to
+the nearest survivor, or to the split-list container when none remains.
+Newer user focus supersedes an older in-flight probe, whose eventual completion cannot overwrite
+the new target. `Found` and `Removed` are rejected when any coherent resident page contradicts the
+resolution, with proof bounded by the resident-page cap.
+
+Content-free diagnostics expose bounded resident page and item counts, pending request count, and
+stale-result count without labels, item identities, or host content.
 
 # Layout
 
@@ -109,15 +126,17 @@ The panel fills the window, uses stable outer and panel padding, and arranges ti
 
 The body is a horizontal layout with a fixed section-navigation column and a flexible selected-section column. Broad section navigation is fully rendered only up to `MAX_SECTION_ROWS`, whose nonvisual resource bound is 32 rows; an over-bound model is rejected rather than truncated. Page-local split lists use a fixed width. Selected detail rows are fully rendered up to `MAX_PAGE_DETAIL_ROWS`, whose nonvisual resource bound is 32 rows. Page-local split lists are windowed with fixed item height, fixed gaps, and a nonvisual overscan bound of 3 rows.
 
-The paged split-list variant retains only visible and overscan pages plus compact revision,
-selection, and request state. Resident row, page, and request counts remain fixed as logical item
+The page-local split list retains only visible and overscan pages plus compact revision, selection,
+focus, and request state. Resident row, page, request, and work counts remain fixed as logical item
 count grows; the widget never collects all source items merely to window their rendering.
 
 # Variants
 
 Default variant: preheated settings OS window with section navigation, detail rows, and bottom OK/Apply/Cancel buttons.
 
-Supported variants are hidden, visible, detail rows only, page-local split, revision-bound paged page-local split, stacked custom body, page actions, row actions, transient choice popup, transient color picker, and custom visual theme.
+Supported variants are hidden, visible, detail rows only, revision-bound paged page-local split,
+stacked custom body, page actions, row actions, transient choice popup, transient color picker, and
+custom visual theme.
 
 # UI Roles
 

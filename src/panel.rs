@@ -22,13 +22,15 @@ use crate::input::{
 };
 use crate::model::{
     SettingsFieldId, SettingsFieldKind, SettingsPageActionId, SettingsPageId,
-    SettingsPageSplitItemId, SettingsRow, SettingsRowActionId, SettingsSavedColorSwatchId,
-    SettingsSectionId, SettingsWindowEvent, SettingsWindowModel, element_id_suffix,
+    SettingsPageSplitDelivery, SettingsPageSplitDeliveryError, SettingsPageSplitItemId,
+    SettingsPageSplitPageResult, SettingsPageSplitWorkReceiver, SettingsRow, SettingsRowActionId,
+    SettingsSavedColorSwatchId, SettingsSectionId, SettingsWindowEvent, SettingsWindowModel,
+    element_id_suffix,
 };
 use crate::{
     RgbColor, SettingsPageBodyRenderer, SettingsSavedColorSwatch, SettingsWindowDiagnostics,
     SettingsWindowOptions, SettingsWindowPerformanceDiagnostics, SettingsWindowRangeDiagnostics,
-    SettingsWindowRowSurfaceDiagnostics, SettingsWindowTheme,
+    SettingsWindowRowSurfaceDiagnostics, SettingsWindowSplitPagerDiagnostics, SettingsWindowTheme,
 };
 
 mod color_paint;
@@ -37,9 +39,13 @@ mod color_render;
 mod picker;
 mod render;
 mod scrollbar;
+mod split;
 mod test_support;
 
+use split::SplitPager;
+
 const PANEL_KEY_CONTEXT: &str = "GpuiSettingsWindowPanel";
+const SPLIT_KEY_CONTEXT: &str = "GpuiSettingsWindowPageSplit";
 const NAVIGATION_WIDTH: f32 = 196.0;
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 const PAGE_LOCAL_SPLIT_ITEM_HEIGHT: f32 = 88.0;
@@ -65,6 +71,9 @@ actions!(
         SavedSwatchUp,
         SavedSwatchDown,
         ApplySavedSwatch,
+        SplitPrevious,
+        SplitNext,
+        ApplySplit,
     ]
 );
 
@@ -115,10 +124,13 @@ pub struct SettingsPanel {
     model: SettingsWindowModel,
     fields: HashMap<SettingsFieldId, Entity<SettingsFieldInput>>,
     focus_handle: FocusHandle,
+    split_focus_handle: FocusHandle,
     saved_color_grid_focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     navigation_scroll_handle: ScrollHandle,
     split_scroll_handle: ScrollHandle,
+    split_pager: SplitPager,
+    page_split_active: bool,
     content_scrollbar: ScrollbarState,
     navigation_scrollbar: ScrollbarState,
     split_scrollbar: ScrollbarState,
@@ -197,30 +209,44 @@ impl SettingsWindowModel {
 }
 
 impl SettingsPanel {
-    /// Creates a settings panel from a presentation model.
-    pub fn new(model: SettingsWindowModel, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::new_with_options(model, SettingsWindowOptions::default(), window, cx)
+    /// Creates a settings panel from a presentation model and its host-retained split receiver.
+    pub fn new(
+        model: SettingsWindowModel,
+        split_work_receiver: SettingsPageSplitWorkReceiver,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_with_options(
+            model,
+            SettingsWindowOptions::default(),
+            split_work_receiver,
+            window,
+            cx,
+        )
     }
 
-    /// Creates a settings panel from a presentation model and saved color swatches.
+    /// Creates a settings panel, saved swatches, and an explicit host-retained split receiver.
     pub fn new_with_saved_color_swatches(
         model: SettingsWindowModel,
         saved_color_swatches: Vec<SettingsSavedColorSwatch>,
+        split_work_receiver: SettingsPageSplitWorkReceiver,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Self, crate::SettingsWindowOptionsError> {
         Ok(Self::new_with_options(
             model,
             SettingsWindowOptions::default().with_saved_color_swatches(saved_color_swatches)?,
+            split_work_receiver,
             window,
             cx,
         ))
     }
 
-    /// Creates a settings panel from a presentation model and visual options.
+    /// Creates a settings panel with visual options and an explicit host-retained split receiver.
     pub fn new_with_options(
         model: SettingsWindowModel,
         options: SettingsWindowOptions,
+        split_work_receiver: SettingsPageSplitWorkReceiver,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -230,10 +256,13 @@ impl SettingsPanel {
             model,
             fields: HashMap::new(),
             focus_handle: cx.focus_handle(),
+            split_focus_handle: cx.focus_handle(),
             saved_color_grid_focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             navigation_scroll_handle: ScrollHandle::new(),
             split_scroll_handle: ScrollHandle::new(),
+            split_pager: SplitPager::new(split_work_receiver),
+            page_split_active: true,
             content_scrollbar: Self::new_scrollbar(CONTENT_SCROLLBAR_OWNER_ID, 1),
             navigation_scrollbar: Self::new_scrollbar(NAVIGATION_SCROLLBAR_OWNER_ID, 1),
             split_scrollbar: Self::new_scrollbar(SPLIT_SCROLLBAR_OWNER_ID, 1),
@@ -269,6 +298,7 @@ impl SettingsPanel {
         panel.rebuild_fields(window, cx);
         panel.sync_split_scroll_for_model(None, None, window, cx);
         cx.on_release_in(window, |panel, window, cx| {
+            panel.split_pager.clear();
             panel.teardown_scrollbars(window, cx);
         })
         .detach();
@@ -326,8 +356,8 @@ impl SettingsPanel {
             overscan_count: 0,
             row_height_strategy: "full_selected_page".to_string(),
         };
-        let split_list = selected_page.local_split().map(|split| {
-            let item_count = split.items().len();
+        let split_list = selected_page.paged_split_source().map(|split| {
+            let item_count = split.logical_item_count();
             let range = page_local_split_render_window(
                 item_count,
                 self.split_scroll_handle.offset().y,
@@ -342,6 +372,15 @@ impl SettingsPanel {
                 row_height_strategy: "fixed_height_windowed".to_string(),
             }
         });
+        let split_pager =
+            selected_page
+                .paged_split_source()
+                .map(|_| SettingsWindowSplitPagerDiagnostics {
+                    resident_page_count: self.split_pager.resident_page_count(),
+                    resident_item_count: self.split_pager.resident_item_count(),
+                    pending_request_count: self.split_pager.pending_request_count(),
+                    stale_result_count: self.split_pager.stale_result_count(),
+                });
 
         SettingsWindowDiagnostics {
             visible,
@@ -349,8 +388,40 @@ impl SettingsPanel {
             selected_page_id: selected_page.page_id().as_str().to_string(),
             detail_rows,
             split_list,
+            split_pager,
             performance: self.performance_diagnostics(),
         }
+    }
+
+    /// Delivers one exact terminal result to the mounted paged split source.
+    pub fn deliver_page_split_result(
+        &mut self,
+        result: SettingsPageSplitPageResult,
+        cx: &mut Context<Self>,
+    ) -> Result<SettingsPageSplitDelivery, SettingsPageSplitDeliveryError> {
+        let delivery = self.split_pager.deliver(result)?;
+        if delivery != SettingsPageSplitDelivery::Obsolete {
+            if let Some(position) = self.split_pager.take_focus_reveal() {
+                self.reveal_split_item_index(position, self.split_pager.logical_item_count());
+            }
+            cx.notify();
+        }
+        Ok(delivery)
+    }
+
+    pub(crate) fn suspend_page_split(&mut self) {
+        self.page_split_active = false;
+        self.split_pager.clear();
+    }
+
+    pub(crate) fn resume_page_split(&mut self, cx: &mut Context<Self>) {
+        self.page_split_active = true;
+        let page = self.model.selected_page();
+        if let Some(source) = page.paged_split_source() {
+            self.split_pager
+                .bind(page.page_id().clone(), source.clone());
+        }
+        cx.notify();
     }
 
     /// Returns the current visual theme.
@@ -971,10 +1042,7 @@ impl SettingsPanel {
         page_id: &SettingsPageId,
         item_id: &SettingsPageSplitItemId,
     ) -> bool {
-        self.model
-            .page(page_id)
-            .and_then(|page| page.local_split())
-            .is_some_and(|split| split.items().iter().any(|item| item.item_id() == item_id))
+        page_id == self.model.selected_page_id() && self.split_pager.contains_item(item_id)
     }
 
     fn focus_selected_section_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1028,13 +1096,17 @@ impl SettingsPanel {
     }
 
     fn ordered_input_focus_targets(&self, cx: &App) -> Vec<FocusHandle> {
-        let mut targets: Vec<_> = self
-            .model
-            .selected_text_input_field_ids()
-            .iter()
-            .filter_map(|field_id| self.input_for_field(field_id))
-            .map(|input| input.read(cx).tab_focus_handle())
-            .collect();
+        let mut targets = Vec::new();
+        if self.model.selected_page().paged_split_source().is_some() {
+            targets.push(self.split_focus_handle.clone());
+        }
+        targets.extend(
+            self.model
+                .selected_text_input_field_ids()
+                .iter()
+                .filter_map(|field_id| self.input_for_field(field_id))
+                .map(|input| input.read(cx).tab_focus_handle()),
+        );
 
         if self.color_picker_field.is_some() {
             if let Some(input) = self.color_picker_input.clone() {
@@ -1054,6 +1126,63 @@ impl SettingsPanel {
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
         cx.emit(SettingsWindowEvent::CancelRequested);
+    }
+
+    fn split_previous(&mut self, _: &SplitPrevious, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_split_focus(-1, cx);
+    }
+
+    fn split_next(&mut self, _: &SplitNext, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_split_focus(1, cx);
+    }
+
+    fn apply_split(&mut self, _: &ApplySplit, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(position) = self.split_pager.focused_position() else {
+            return;
+        };
+        let Some(item_id) = self
+            .split_pager
+            .item_at(position)
+            .map(|item| item.item_id().clone())
+        else {
+            return;
+        };
+        cx.emit(SettingsWindowEvent::PageSplitItemSelected {
+            page_id: self.model.selected_page_id().clone(),
+            item_id,
+        });
+    }
+
+    fn select_split_item_from_pointer(
+        &mut self,
+        page_id: SettingsPageId,
+        source_key: crate::SettingsPageSplitSourceKey,
+        logical_position: usize,
+        item_id: SettingsPageSplitItemId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self
+            .split_pager
+            .matches_current_item(&page_id, &source_key, logical_position, &item_id)
+        {
+            return false;
+        }
+        window.focus(&self.split_focus_handle);
+        if !self.split_pager.focus_position(logical_position) {
+            return false;
+        }
+        cx.emit(SettingsWindowEvent::PageSplitItemSelected { page_id, item_id });
+        true
+    }
+
+    fn move_split_focus(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(position) = self.split_pager.move_focus(delta) else {
+            return;
+        };
+        let count = self.split_pager.logical_item_count();
+        self.reveal_split_item_index(position, count);
+        cx.notify();
     }
 
     fn select_section(
@@ -1083,7 +1212,7 @@ impl SettingsPanel {
         let next_consumer = self
             .model
             .selected_page()
-            .local_split()
+            .paged_split_source()
             .map(|_| self.model.selected_page_id().clone());
         if self.split_scrollbar_consumer != next_consumer {
             self.unmount_split_scrollbar(window, cx);
@@ -1091,6 +1220,7 @@ impl SettingsPanel {
         }
 
         if next_consumer.is_none() {
+            self.split_pager.clear();
             let current = self.split_scroll_handle.offset();
             self.split_scroll_handle
                 .set_offset(point(current.x, px(0.0)));
@@ -1101,13 +1231,15 @@ impl SettingsPanel {
             self.mount_split_scrollbar(cx);
         }
 
-        let item_count = self
-            .model
-            .selected_page()
-            .local_split()
-            .expect("split consumer requires a selected-page split")
-            .items()
-            .len();
+        let page = self.model.selected_page();
+        let source = page
+            .paged_split_source()
+            .expect("split consumer requires a selected-page split source")
+            .clone();
+        let item_count = source.logical_item_count();
+        if self.page_split_active {
+            self.split_pager.bind(page.page_id().clone(), source);
+        }
         let Some((page_id, item_id, selected_index, item_count)) =
             selected_page_split_selection(&self.model)
         else {
@@ -1248,17 +1380,13 @@ fn selected_page_split_selection(
     model: &SettingsWindowModel,
 ) -> Option<(SettingsPageId, SettingsPageSplitItemId, usize, usize)> {
     let page = model.selected_page();
-    let split = page.local_split()?;
-    let (index, item) = split
-        .items()
-        .iter()
-        .enumerate()
-        .find(|(_, item)| item.is_selected())?;
+    let split = page.paged_split_source()?;
+    let selected = split.selected()?;
     Some((
         page.page_id().clone(),
-        item.item_id().clone(),
-        index,
-        split.items().len(),
+        selected.item_id().clone(),
+        selected.logical_position(),
+        split.logical_item_count(),
     ))
 }
 
@@ -1343,6 +1471,10 @@ pub(crate) fn ensure_settings_panel_bindings(cx: &mut App) {
             ApplySavedSwatch,
             Some("GpuiSettingsSavedColorGrid"),
         ),
+        gpui::KeyBinding::new("up", SplitPrevious, Some(SPLIT_KEY_CONTEXT)),
+        gpui::KeyBinding::new("down", SplitNext, Some(SPLIT_KEY_CONTEXT)),
+        gpui::KeyBinding::new("enter", ApplySplit, Some(SPLIT_KEY_CONTEXT)),
+        gpui::KeyBinding::new("space", ApplySplit, Some(SPLIT_KEY_CONTEXT)),
     ]);
     cx.set_global(SettingsPanelBindingsInstalled);
 }

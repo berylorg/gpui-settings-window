@@ -1,5 +1,6 @@
 use super::{
-    SettingsPageAction, SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplit, SettingsRow,
+    SettingsPageAction, SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplitSource,
+    SettingsRow,
 };
 
 /// App-neutral page body layout selected by the host page model.
@@ -83,7 +84,7 @@ pub struct SettingsPage {
     back_target_page_id: Option<SettingsPageId>,
     rows: Vec<SettingsRow>,
     actions: Vec<SettingsPageAction>,
-    local_split: Option<SettingsPageSplit>,
+    paged_split_source: Option<SettingsPageSplitSource>,
     stacked_custom_body: Option<SettingsPageCustomBody>,
     modified: bool,
 }
@@ -98,7 +99,7 @@ impl SettingsPage {
             back_target_page_id: None,
             rows: Vec::new(),
             actions: Vec::new(),
-            local_split: None,
+            paged_split_source: None,
             stacked_custom_body: None,
             modified: false,
         }
@@ -116,9 +117,9 @@ impl SettingsPage {
         self
     }
 
-    /// Returns a copy of this page with a page-local leading split list.
-    pub fn with_local_split(mut self, split: SettingsPageSplit) -> Self {
-        self.local_split = Some(split);
+    /// Returns a copy with a bounded paged page-local split source.
+    pub fn with_paged_split_source(mut self, source: SettingsPageSplitSource) -> Self {
+        self.paged_split_source = Some(source);
         self
     }
 
@@ -181,14 +182,14 @@ impl SettingsPage {
         &self.actions
     }
 
-    /// Returns the optional page-local leading split list.
-    pub fn local_split(&self) -> Option<&SettingsPageSplit> {
-        self.local_split.as_ref()
+    /// Returns the optional bounded paged page-local split source.
+    pub fn paged_split_source(&self) -> Option<&SettingsPageSplitSource> {
+        self.paged_split_source.as_ref()
     }
 
     /// Returns the stacked custom body descriptor when this page has one.
     pub fn stacked_custom_body(&self) -> Option<&SettingsPageCustomBody> {
-        if self.local_split.is_some() {
+        if self.paged_split_source.is_some() {
             None
         } else {
             self.stacked_custom_body.as_ref()
