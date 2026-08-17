@@ -1,3 +1,1 @@
-include = [
-    { path = "local.toml", optional = true },
-]
+include = [{ path = "local.toml", optional = true }]
