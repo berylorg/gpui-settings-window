@@ -283,3 +283,11 @@ Choice settings presentation fields use the same string value and `FieldChanged`
 ## Application Neutrality
 
 The crate must not encode Beryl or Myrrh behavior. Any app-specific setting names, defaults, validation rules, persistence paths, or apply policy belong in host application crates.
+
+# Engineering Rigor
+
+Profile: `production-application/v1`
+
+Modifiers:
+
+- `shared-resource-protection/v1`
