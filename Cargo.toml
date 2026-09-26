@@ -9,9 +9,9 @@ rust-version = "1.92"
 version = "0.1.0"
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/berylorg/zed-fork.git", rev = "936b801fff82e343124237608bf46e4d192f5177", default-features = false, features = ["windows-manifest"] }
-gpui-scrollbar = { git = "https://github.com/berylorg/gpui-scrollbar.git", rev = "d81b61231274246be1e65805efdfbf764e48d8e4" }
-gpui-text-input = { git = "https://github.com/berylorg/gpui-text-input.git", rev = "8ae854b9ebe5beb4885860cf4f7d95b68a20bbb7" }
+gpui = { git = "https://github.com/berylorg/zed-fork.git", rev = "19ef0796613226c123a3c9047865060e7639f713", default-features = false, features = ["windows-manifest"] }
+gpui-scrollbar = { git = "https://github.com/berylorg/gpui-scrollbar.git", rev = "1ca3bef5313117fc8edda88fc7aa2cb66e0cc013" }
+gpui-text-input = { git = "https://github.com/berylorg/gpui-text-input.git", rev = "83848233f7e06314454d172053ed05b751231519" }
 raw-window-handle = "0.6.2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
