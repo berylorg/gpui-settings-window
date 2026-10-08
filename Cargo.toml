@@ -11,7 +11,7 @@ version = "0.1.0"
 [workspace.dependencies]
 gpui = { git = "https://github.com/berylorg/zed-fork.git", rev = "edd4928c5be424630da49f872e00dafbf94cf0b2", default-features = false, features = ["windows-manifest"] }
 gpui-scrollbar = { git = "https://github.com/berylorg/gpui-scrollbar.git", rev = "b9e591820b61fc788f148bca1f6f80b6341a692c" }
-gpui-text-input = { git = "https://github.com/berylorg/gpui-text-input.git", rev = "f9651f8909f67f52f322b78547cb22f297572c0a" }
+gpui-text-input = { git = "https://github.com/berylorg/gpui-text-input.git", rev = "c39e46a00e06b603d73e8a1bfec11dc6a913314c" }
 raw-window-handle = "0.6.2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
