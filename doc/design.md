@@ -53,6 +53,10 @@ conversion between their domain settings and this crate's presentation model.
 
 Reusable editor behavior belongs outside this crate. This crate consumes `gpui-text-input` for app-neutral text-input mechanics and maps its text-change callbacks into settings-window events, but it keeps settings-specific commands such as accept, apply, cancel, page navigation, row actions, page actions, and color-picker opening at the settings-window boundary.
 
+Hosts that also consume `gpui-text-input` must resolve this crate and their own input dependency to
+one input revision. GPUI action registration is process-wide; distinct linked input revisions
+register duplicate action names even when their Rust types never cross a public boundary.
+
 ## Presentation Model
 
 The public model is section-and-page oriented. A settings window contains ordered broad sections for the left navigation. Each section owns one root page and may expose app-neutral subpages rendered in the right pane without creating nested sidebar rows.
