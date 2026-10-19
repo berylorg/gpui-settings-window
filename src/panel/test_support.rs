@@ -6,6 +6,68 @@ use crate::color_picker::{
 };
 
 impl SettingsPanel {
+    pub fn text_input_for_color_picker_for_test(
+        &self,
+        cx: &App,
+    ) -> Option<Entity<gpui_text_input::TextInput>> {
+        self.color_picker_input
+            .as_ref()
+            .map(|input| input.read(cx).text_input_for_test())
+    }
+
+    pub fn text_input_for_field_for_test(
+        &self,
+        field_id: &SettingsFieldId,
+        cx: &App,
+    ) -> Option<Entity<gpui_text_input::TextInput>> {
+        self.input_for_field(field_id)
+            .map(|input| input.read(cx).text_input_for_test())
+    }
+
+    pub fn command_focus_for_test(&self, event: &SettingsWindowEvent) -> Option<FocusHandle> {
+        match event {
+            SettingsWindowEvent::AcceptRequested => Some(self.footer_focus[0].clone()),
+            SettingsWindowEvent::ApplyRequested => Some(self.footer_focus[1].clone()),
+            SettingsWindowEvent::CancelRequested => Some(self.footer_focus[2].clone()),
+            _ => interaction::ActionFocusKey::for_event(event)
+                .and_then(|key| self.action_focus.get(&key).cloned()),
+        }
+    }
+
+    pub fn focused_command_reason_for_test(&self, window: &Window) -> Option<String> {
+        for (index, event) in [
+            SettingsWindowEvent::AcceptRequested,
+            SettingsWindowEvent::ApplyRequested,
+            SettingsWindowEvent::CancelRequested,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if self.footer_focus[index].is_focused(window) {
+                return self.command_disabled_reason(&event);
+            }
+        }
+        self.action_focus.iter().find_map(|(key, focus)| {
+            if !focus.is_focused(window) {
+                return None;
+            }
+            let event = match key {
+                interaction::ActionFocusKey::Row(field_id, action_id) => {
+                    SettingsWindowEvent::RowActionRequested {
+                        field_id: field_id.clone(),
+                        action_id: action_id.clone(),
+                    }
+                }
+                interaction::ActionFocusKey::Page(page_id, action_id) => {
+                    SettingsWindowEvent::PageActionRequested {
+                        page_id: page_id.clone(),
+                        action_id: action_id.clone(),
+                    }
+                }
+            };
+            self.command_disabled_reason(&event)
+        })
+    }
     pub fn demand_page_split_range_for_test(&mut self, range: std::ops::Range<usize>) {
         self.split_pager.ensure_demand(range);
     }

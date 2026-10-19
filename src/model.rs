@@ -5,6 +5,7 @@ use std::fmt;
 mod actions;
 mod element_id;
 mod ids;
+mod interaction;
 mod page;
 mod row;
 mod split;
@@ -17,6 +18,10 @@ pub use ids::{
     SettingsFieldId, SettingsPageActionId, SettingsPageCustomBodyId, SettingsPageId,
     SettingsPageSplitItemId, SettingsPageSplitSourceId, SettingsRowActionId,
     SettingsSavedColorSwatchId, SettingsSectionId,
+};
+pub use interaction::{
+    SettingsFieldAvailability, SettingsFieldInputRefusal, SettingsFieldValidity,
+    SettingsFooterCommand, SettingsInteractionAdmission, SettingsInteractionGate,
 };
 pub use page::{
     SettingsBreadcrumbSegment, SettingsPage, SettingsPageBodyLayout, SettingsPageCustomBody,
@@ -118,6 +123,10 @@ pub struct SettingsWindowModel {
     sections: Vec<SettingsSection>,
     selected_section_id: SettingsSectionId,
     selected_page_id: SettingsPageId,
+    interaction_gate: SettingsInteractionGate,
+    accept_availability: SettingsActionAvailability,
+    apply_availability: SettingsActionAvailability,
+    cancel_availability: SettingsActionAvailability,
 }
 
 impl SettingsWindowModel {
@@ -153,6 +162,10 @@ impl SettingsWindowModel {
             sections,
             selected_section_id,
             selected_page_id,
+            interaction_gate: SettingsInteractionGate::Open,
+            accept_availability: SettingsActionAvailability::enabled(),
+            apply_availability: SettingsActionAvailability::enabled(),
+            cancel_availability: SettingsActionAvailability::enabled(),
         })
     }
 
@@ -197,6 +210,79 @@ impl SettingsWindowModel {
             sections,
             selected_section_id,
             selected_page_id,
+            interaction_gate: SettingsInteractionGate::Open,
+            accept_availability: SettingsActionAvailability::enabled(),
+            apply_availability: SettingsActionAvailability::enabled(),
+            cancel_availability: SettingsActionAvailability::enabled(),
+        })
+    }
+
+    pub fn with_interaction_gate(mut self, gate: SettingsInteractionGate) -> Self {
+        self.interaction_gate = gate;
+        self
+    }
+
+    pub fn interaction_gate(&self) -> &SettingsInteractionGate {
+        &self.interaction_gate
+    }
+
+    pub fn with_footer_availability(
+        mut self,
+        command: SettingsFooterCommand,
+        availability: SettingsActionAvailability,
+    ) -> Self {
+        *match command {
+            SettingsFooterCommand::Accept => &mut self.accept_availability,
+            SettingsFooterCommand::Apply => &mut self.apply_availability,
+            SettingsFooterCommand::Cancel => &mut self.cancel_availability,
+        } = availability;
+        self
+    }
+
+    pub fn footer_availability(
+        &self,
+        command: SettingsFooterCommand,
+    ) -> &SettingsActionAvailability {
+        match command {
+            SettingsFooterCommand::Accept => &self.accept_availability,
+            SettingsFooterCommand::Apply => &self.apply_availability,
+            SettingsFooterCommand::Cancel => &self.cancel_availability,
+        }
+    }
+
+    pub fn field_availability(
+        &self,
+        field_id: &SettingsFieldId,
+    ) -> Option<&SettingsFieldAvailability> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id && row.is_field() {
+                return Some(row.availability());
+            }
+            row.detail_field()
+                .filter(|f| f.field_id() == field_id)
+                .map(|f| f.availability())
+        })
+    }
+
+    pub fn field_validity(&self, field_id: &SettingsFieldId) -> Option<SettingsFieldValidity> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id && row.is_field() {
+                return Some(row.validity());
+            }
+            row.detail_field()
+                .filter(|f| f.field_id() == field_id)
+                .map(|f| f.validity())
+        })
+    }
+
+    pub fn field_value_byte_limit(&self, field_id: &SettingsFieldId) -> Option<usize> {
+        self.rows().find_map(|row| {
+            if row.field_id() == field_id && row.is_field() {
+                return row.value_byte_limit();
+            }
+            row.detail_field()
+                .filter(|f| f.field_id() == field_id)
+                .and_then(|f| f.value_byte_limit())
         })
     }
 
@@ -351,12 +437,31 @@ impl SettingsWindowModel {
     }
 
     /// Updates a field row value by identifier.
+    pub fn validate_field_value(
+        &self,
+        field_id: &SettingsFieldId,
+        value: &str,
+    ) -> Result<(), SettingsWindowError> {
+        let kind = self
+            .field_kind(field_id)
+            .ok_or_else(|| SettingsWindowError::MissingField(field_id.clone()))?;
+        validate_field_value_limit(field_id, kind, value, self.field_value_byte_limit(field_id))
+    }
+
     pub fn set_row_value(
         &mut self,
         field_id: &SettingsFieldId,
         value: impl Into<String>,
     ) -> Result<(), SettingsWindowError> {
         let value = value.into();
+        if let Some(kind) = self.field_kind(field_id) {
+            validate_field_value_limit(
+                field_id,
+                kind,
+                &value,
+                self.field_value_byte_limit(field_id),
+            )?;
+        }
         for row in self
             .sections
             .iter_mut()
@@ -402,6 +507,10 @@ pub enum SettingsWindowEvent {
         field_id: SettingsFieldId,
         /// New presentation value.
         value: String,
+    },
+    FieldInputRefused {
+        field_id: SettingsFieldId,
+        reason: SettingsFieldInputRefusal,
     },
     /// The user requested that the compact color field expand into the picker.
     ColorPickerRequested {
@@ -463,6 +572,14 @@ pub enum SettingsWindowError {
     },
     /// A field has an empty identifier.
     EmptyFieldId,
+    UnsupportedFieldValueLimit {
+        field_id: SettingsFieldId,
+    },
+    FieldValueLimitExceeded {
+        field_id: SettingsFieldId,
+        limit: usize,
+        value_bytes: usize,
+    },
     /// More than one row uses the same field identifier.
     DuplicateFieldId(SettingsFieldId),
     /// A row action has an empty identifier.
@@ -514,11 +631,17 @@ pub enum SettingsWindowError {
         action_id: SettingsPageActionId,
     },
     /// A paged split source has an empty stable identity.
-    EmptyPageSplitSourceId { page_id: SettingsPageId },
+    EmptyPageSplitSourceId {
+        page_id: SettingsPageId,
+    },
     /// A paged split source declares a zero hard page limit.
-    InvalidPageSplitLimits { page_id: SettingsPageId },
+    InvalidPageSplitLimits {
+        page_id: SettingsPageId,
+    },
     /// The compact selected item has an empty stable identity.
-    EmptyPageSplitSelectionId { page_id: SettingsPageId },
+    EmptyPageSplitSelectionId {
+        page_id: SettingsPageId,
+    },
     /// The compact selected item lies outside the logical source extent.
     PageSplitSelectionOutOfBounds {
         page_id: SettingsPageId,
@@ -588,6 +711,18 @@ impl fmt::Display for SettingsWindowError {
                 )
             }
             Self::EmptyFieldId => write!(formatter, "settings field id is empty"),
+            Self::UnsupportedFieldValueLimit { field_id } => write!(
+                formatter,
+                "settings field `{field_id}` does not support a text value limit"
+            ),
+            Self::FieldValueLimitExceeded {
+                field_id,
+                limit,
+                value_bytes,
+            } => write!(
+                formatter,
+                "settings field `{field_id}` has {value_bytes} normalized bytes, above the limit {limit}"
+            ),
             Self::DuplicateFieldId(field_id) => {
                 write!(formatter, "duplicate settings field id `{field_id}`")
             }
@@ -891,7 +1026,18 @@ fn validate_row(
         }
     }
 
+    if !row.is_field() && row.value_byte_limit().is_some() {
+        return Err(SettingsWindowError::UnsupportedFieldValueLimit {
+            field_id: row.field_id().clone(),
+        });
+    }
     validate_field_choices(row.field_id(), row.kind(), row.value(), row.choices())?;
+    validate_field_value_limit(
+        row.field_id(),
+        row.kind(),
+        row.value(),
+        row.value_byte_limit(),
+    )?;
 
     if let Some(field) = row.detail_field() {
         if !row.is_field() {
@@ -911,8 +1057,55 @@ fn validate_row(
             field.value(),
             field.choices(),
         )?;
+        validate_field_value_limit(
+            field.field_id(),
+            field.kind(),
+            field.value(),
+            field.value_byte_limit(),
+        )?;
     }
 
+    Ok(())
+}
+
+fn validate_field_value_limit(
+    field_id: &SettingsFieldId,
+    kind: SettingsFieldKind,
+    value: &str,
+    limit: Option<usize>,
+) -> Result<(), SettingsWindowError> {
+    let Some(limit) = limit else {
+        return Ok(());
+    };
+    if kind == SettingsFieldKind::Choice {
+        return Err(SettingsWindowError::UnsupportedFieldValueLimit {
+            field_id: field_id.clone(),
+        });
+    }
+    let mut bytes = 0;
+    let mut previous_newline = false;
+    let mut previous_cr = false;
+    for character in value.chars() {
+        if kind == SettingsFieldKind::MultilineText {
+            if character != '\n' || !previous_cr {
+                bytes += character.len_utf8();
+            }
+            previous_cr = character == '\r';
+        } else {
+            let newline = matches!(character, '\r' | '\n');
+            if !newline || !previous_newline {
+                bytes += character.len_utf8();
+            }
+            previous_newline = newline;
+        }
+    }
+    if bytes > limit {
+        return Err(SettingsWindowError::FieldValueLimitExceeded {
+            field_id: field_id.clone(),
+            limit,
+            value_bytes: bytes,
+        });
+    }
     Ok(())
 }
 

@@ -119,6 +119,9 @@ pub struct SettingsPageAction {
 }
 
 impl SettingsPageAction {
+    pub fn availability(&self) -> &SettingsActionAvailability {
+        &self.availability
+    }
     /// Creates an enabled secondary page action.
     pub fn new(action_id: impl Into<SettingsPageActionId>, label: impl Into<String>) -> Self {
         Self {

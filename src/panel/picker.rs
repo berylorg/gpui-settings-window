@@ -15,6 +15,9 @@ impl SettingsPanel {
         value: &str,
         cx: &mut Context<Self>,
     ) {
+        if !self.value_is_admitted(field_id, value, cx) {
+            return;
+        }
         let is_color = self
             .model
             .field_kind(field_id)
@@ -47,6 +50,9 @@ impl SettingsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.field_is_mutable(&field_id) {
+            return;
+        }
         let _ = self.focus_field(&field_id, window, cx);
         self.open_color_picker(field_id, window, cx);
     }
@@ -57,6 +63,12 @@ impl SettingsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.field_is_mutable(&field_id) {
+            return;
+        }
+        if !self.value_is_admitted(&field_id, "#000000", cx) {
+            return;
+        }
         if self
             .model
             .field_kind(&field_id)
@@ -129,6 +141,7 @@ impl SettingsPanel {
         }
 
         self.sync_color_picker_channel_inputs(self.synced_color_for_field(&field_id), cx);
+        self.sync_picker_admission(cx);
         cx.notify();
     }
 
@@ -192,12 +205,16 @@ impl SettingsPanel {
                     this.materialize_color_picker_channel_on_blur(field, cx);
                 }
                 ColorComponentInputEvent::Accepted => {
-                    window.focus(&this.focus_handle);
-                    cx.emit(SettingsWindowEvent::AcceptRequested);
+                    if this.event_is_admitted(&SettingsWindowEvent::AcceptRequested) {
+                        window.focus(&this.focus_handle);
+                        this.request_event(SettingsWindowEvent::AcceptRequested, cx);
+                    }
                 }
                 ColorComponentInputEvent::Canceled => {
-                    window.focus(&this.focus_handle);
-                    cx.emit(SettingsWindowEvent::CancelRequested);
+                    if this.event_is_admitted(&SettingsWindowEvent::CancelRequested) {
+                        window.focus(&this.focus_handle);
+                        this.request_event(SettingsWindowEvent::CancelRequested, cx);
+                    }
                 }
             },
         )
@@ -394,6 +411,12 @@ impl SettingsPanel {
         value: &str,
         cx: &mut Context<Self>,
     ) {
+        let Some(field_id) = self.color_picker_field.clone() else {
+            return;
+        };
+        if !self.value_is_admitted(&field_id, "#000000", cx) {
+            return;
+        }
         if value.trim().is_empty() {
             self.color_picker_channel_empty_drafts
                 .insert(field, value.to_owned());
@@ -414,6 +437,13 @@ impl SettingsPanel {
         field: ColorPickerChannelField,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .color_picker_field
+            .as_ref()
+            .is_none_or(|field| !self.field_is_mutable(field))
+        {
+            return;
+        }
         if self.color_picker_focused_channel == Some(field) {
             self.color_picker_focused_channel = None;
         }
@@ -430,13 +460,19 @@ impl SettingsPanel {
         let Some(field_id) = self.color_picker_field.clone() else {
             return;
         };
+        if !self.value_is_admitted(&field_id, &color.to_hex(), cx) {
+            return;
+        }
         self.color_picker_drag_target = None;
         self.clear_color_picker_channel_drafts();
         self.remember_latest_color(field_id.clone(), color);
         self.sync_color_picker_channel_inputs(Some(color), cx);
-        cx.emit(SettingsWindowEvent::FieldChanged {
-            field_id,
-            value: color.to_hex(),
-        });
+        self.request_event(
+            SettingsWindowEvent::FieldChanged {
+                field_id,
+                value: color.to_hex(),
+            },
+            cx,
+        );
     }
 }

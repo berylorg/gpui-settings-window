@@ -77,15 +77,12 @@ impl SettingsWindowHandle {
     }
 
     /// Hides the OS window without removing it and closes transient popups.
-    pub fn hide<C>(&self, cx: &mut C) -> Result<()>
+    pub fn hide<C>(&self, cx: &mut C) -> Result<bool>
     where
         C: gpui::AppContext,
     {
         self.handle
-            .update(cx, |view, window, cx| {
-                view.hide(window, cx);
-            })
-            .map(|_| ())
+            .update(cx, |view, window, cx| view.hide(window, cx))
     }
 
     /// Updates the presentation model without changing visibility.
@@ -401,7 +398,10 @@ impl SettingsWindowView {
     }
 
     /// Hides the OS window but keeps the GPUI window and panel entities alive.
-    pub fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.model.interaction_gate().is_open() {
+            return false;
+        }
         self.close_transient_popups(cx);
         let _ = self.settings_panel.update(cx, |panel, cx| {
             panel.suspend_page_split();
@@ -410,6 +410,7 @@ impl SettingsWindowView {
         self.visible = false;
         hide_native_settings_window(window);
         cx.notify();
+        true
     }
 
     /// Focuses the first setting field in the selected page.
@@ -453,6 +454,9 @@ impl SettingsWindowView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if !self.model.interaction_gate().is_open() {
+            return false;
+        }
         self.hide(window, cx);
         cx.emit(SettingsWindowEvent::CloseRequested);
         false

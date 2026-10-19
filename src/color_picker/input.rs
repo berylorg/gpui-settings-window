@@ -28,6 +28,7 @@ pub(crate) struct ColorComponentInput {
     font_size: f32,
     visual_theme: SettingsInputTheme,
     text_input_undo_byte_limit: usize,
+    read_only: bool,
 }
 
 impl EventEmitter<ColorComponentInputEvent> for ColorComponentInput {}
@@ -55,6 +56,7 @@ impl ColorComponentInput {
             font_size,
             visual_theme,
             text_input_undo_byte_limit,
+            read_only: false,
         };
         input.install_focus_listener(window, cx, &focus_handle);
         input
@@ -75,6 +77,12 @@ impl ColorComponentInput {
             input.set_theme(theme, cx);
         });
         cx.notify();
+    }
+
+    pub(crate) fn set_read_only(&mut self, read_only: bool, cx: &mut Context<Self>) {
+        self.read_only = read_only;
+        self.input
+            .update(cx, |input, cx| input.set_read_only(read_only, cx));
     }
 
     pub(crate) fn sync(&mut self, value: &str, font_size: f32, cx: &mut Context<Self>) {
@@ -114,6 +122,8 @@ impl ColorComponentInput {
         );
         self.focus_handle = self.input.read(cx).tab_focus_handle();
         Self::subscribe_to_text_input(&self.input, cx);
+        self.input
+            .update(cx, |input, cx| input.set_read_only(self.read_only, cx));
         self.install_focus_listener(window, cx, &self.focus_handle.clone());
         cx.notify();
     }
@@ -176,7 +186,7 @@ impl ColorComponentInput {
         event: &TextInputEvent,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(event, TextInputEvent::Changed(_)) {
+        if self.input != *input || self.read_only || !matches!(event, TextInputEvent::Changed(_)) {
             return;
         }
 
@@ -217,6 +227,9 @@ impl ColorComponentInput {
     }
 
     fn apply_numeric_step(&mut self, delta: i16, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         let current = self.value.trim().parse::<i16>().unwrap_or_default();
         let next = (current + delta).clamp(0, self.field.max_value() as i16);
         self.set_text_without_event(next.to_string().as_str(), cx);

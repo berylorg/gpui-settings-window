@@ -28,7 +28,11 @@ enum DetailRowsLayout {
 }
 
 impl Render for SettingsPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.focused_action = self
+            .action_focus
+            .iter()
+            .find_map(|(key, focus)| focus.is_focused(window).then(|| key.clone()));
         if self.page_split_active {
             if let Some(source) = self.model.selected_page().paged_split_source() {
                 let range = page_local_split_render_window(
@@ -81,7 +85,7 @@ impl Render for SettingsPanel {
                             .child(self.render_section_navigation(cx))
                             .child(self.render_selected_section(cx)),
                     )
-                    .child(self.render_buttons(cx)),
+                    .child(self.render_buttons(window, cx)),
             );
         self.record_render_diagnostics(render_started.elapsed(), lookup_counts_before);
         element
@@ -240,10 +244,12 @@ impl SettingsPanel {
         custom_body: crate::SettingsPageCustomBody,
     ) -> AnyElement {
         let body_id = custom_body.body_id().clone();
-        let child = self
-            .page_body_renderer
-            .as_ref()
-            .and_then(|renderer| renderer.render(&body_id));
+        let child = self.page_body_renderer.as_ref().and_then(|renderer| {
+            renderer.render(
+                &body_id,
+                crate::SettingsInteractionAdmission::new(&self.interaction_admission),
+            )
+        });
 
         div()
             .id(SharedString::from(format!(
@@ -686,6 +692,7 @@ impl SettingsPanel {
         segment: crate::SettingsBreadcrumbSegment,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let owning_page = self.model.selected_page_id().clone();
         let label = segment.label().to_owned();
         if let Some(page_id) = segment.target_page_id().cloned() {
             return div()
@@ -707,10 +714,16 @@ impl SettingsPanel {
                 .child(label)
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |_, _, _, cx| {
-                        cx.emit(SettingsWindowEvent::PageNavigationRequested {
-                            page_id: page_id.clone(),
-                        });
+                    cx.listener(move |this, _, _, cx| {
+                        if this.model.selected_page_id() != &owning_page {
+                            return;
+                        }
+                        this.request_event(
+                            SettingsWindowEvent::PageNavigationRequested {
+                                page_id: page_id.clone(),
+                            },
+                            cx,
+                        );
                     }),
                 )
                 .into_any_element();
@@ -1053,10 +1066,27 @@ impl SettingsPanel {
         let input = self
             .input_for_field(&field_id)
             .expect("settings field should exist");
+        let source = cx.weak_entity();
         div()
+            .id(SharedString::from(format!(
+                "settings-field-control-{}",
+                element_id_suffix(field_id.as_str())
+            )))
             .flex_none()
             .w(px(control_width))
             .child(input)
+            .tooltip(move |_, cx| {
+                let source = source.clone();
+                let field_id = field_id.clone();
+                cx.new(|cx| tooltip::SettingsCommandTooltip {
+                    _observer: source
+                        .upgrade()
+                        .map(|panel| cx.observe(&panel, |_, _, cx| cx.notify())),
+                    source,
+                    event: SettingsWindowEvent::ColorPickerRequested { field_id },
+                })
+                .into()
+            })
             .into_any_element()
     }
 
@@ -1081,9 +1111,25 @@ impl SettingsPanel {
         } else {
             self.visual_theme.secondary_button.clone()
         };
-        let normal = button_theme.normal;
-        let hover = button_theme.hover;
-        let pressed = button_theme.active;
+        let mutable = self.field_is_mutable(&field_id);
+        let mut normal = if mutable {
+            button_theme.normal
+        } else {
+            button_theme.disabled.clone()
+        };
+        if self.model.field_validity(&field_id) == Some(crate::SettingsFieldValidity::Invalid) {
+            normal.border = self.visual_theme.input.error_border;
+        }
+        let hover = if mutable {
+            button_theme.hover
+        } else {
+            button_theme.disabled.clone()
+        };
+        let pressed = if mutable {
+            button_theme.active
+        } else {
+            button_theme.disabled
+        };
         let entity = cx.entity();
         let bounds_field_id = field_id.clone();
 
@@ -1188,7 +1234,7 @@ impl SettingsPanel {
             .bg(theme_color(self.visual_theme.popup.background))
             .p_1()
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                if event.button == MouseButton::Left {
+                if this.interaction_is_open() && event.button == MouseButton::Left {
                     this.close_choice_popup(cx);
                 }
             }))
@@ -1337,6 +1383,7 @@ impl SettingsPanel {
         target_page_id: crate::SettingsPageId,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let owning_page = self.model.selected_page_id().clone();
         div()
             .id(SharedString::from(format!(
                 "settings-row-{}",
@@ -1376,10 +1423,17 @@ impl SettingsPanel {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
+                    if !this.interaction_is_open() || this.model.selected_page_id() != &owning_page
+                    {
+                        return;
+                    }
                     window.focus(&this.focus_handle);
-                    cx.emit(SettingsWindowEvent::PageNavigationRequested {
-                        page_id: target_page_id.clone(),
-                    });
+                    this.request_event(
+                        SettingsWindowEvent::PageNavigationRequested {
+                            page_id: target_page_id.clone(),
+                        },
+                        cx,
+                    );
                 }),
             )
             .into_any_element()
@@ -1496,33 +1550,91 @@ impl SettingsPanel {
         )
     }
 
-    fn render_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div().flex().justify_end().gap_2().children([
-            self.render_button_element(
-                SharedString::from("settings-button-ok"),
-                String::from("OK"),
+    fn render_buttons(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let definitions = [
+            (
+                "settings-button-ok",
+                "OK",
                 SettingsWindowEvent::AcceptRequested,
-                true,
-                true,
-                cx,
             ),
-            self.render_button_element(
-                SharedString::from("settings-button-apply"),
-                String::from("Apply"),
+            (
+                "settings-button-apply",
+                "Apply",
                 SettingsWindowEvent::ApplyRequested,
-                false,
-                true,
-                cx,
             ),
-            self.render_button_element(
-                SharedString::from("settings-button-cancel"),
-                String::from("Cancel"),
+            (
+                "settings-button-cancel",
+                "Cancel",
                 SettingsWindowEvent::CancelRequested,
-                false,
-                true,
-                cx,
             ),
-        ])
+        ];
+        div()
+            .flex()
+            .justify_end()
+            .gap_2()
+            .children(
+                definitions
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (id, label, event))| {
+                        let focus = self.footer_focus[index].clone();
+                        let focused = focus.is_focused(window);
+                        let reason = self.command_disabled_reason(&event);
+                        let key_event = event.clone();
+                        let button = self.render_button_element(
+                            id.into(),
+                            label.into(),
+                            event,
+                            index == 0,
+                            true,
+                            cx,
+                        );
+                        div()
+                            .id(SharedString::from(format!("settings-footer-focus-{index}")))
+                            .relative()
+                            .track_focus(&focus)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |_, _, window, cx| {
+                                    window.focus(&focus);
+                                    cx.notify();
+                                }),
+                            )
+                            .on_key_down(cx.listener(
+                                move |this, event: &gpui::KeyDownEvent, _, cx| {
+                                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                        cx.stop_propagation();
+                                        this.request_event(key_event.clone(), cx);
+                                    }
+                                },
+                            ))
+                            .child(button)
+                            .when(focused, |element| {
+                                element.when_some(reason, |element, reason| {
+                                    element.child(
+                                        div()
+                                            .id("settings-disabled-command-focus-tooltip")
+                                            .absolute()
+                                            .bottom_full()
+                                            .right_0()
+                                            .max_w(px(360.0))
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_sm()
+                                            .border_1()
+                                            .border_color(theme_color(
+                                                self.visual_theme.popup.border,
+                                            ))
+                                            .bg(theme_color(self.visual_theme.popup.background))
+                                            .text_color(theme_color(
+                                                self.visual_theme.popup.foreground,
+                                            ))
+                                            .child(reason),
+                                    )
+                                })
+                            })
+                    }),
+            )
     }
 
     fn render_button_element(
@@ -1534,6 +1646,7 @@ impl SettingsPanel {
         enabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let enabled = enabled && self.event_is_admitted(&event);
         let button_theme = if active {
             self.visual_theme.primary_button.clone()
         } else {
@@ -1547,9 +1660,25 @@ impl SettingsPanel {
         let hover = button_theme.hover;
         let pressed = button_theme.active;
         let font_weight = FontWeight(button_theme.font_weight as f32);
+        let source = cx.weak_entity();
+        let tooltip_event = event.clone();
+        let owning_page = self.model.selected_page_id().clone();
+        let action_key = interaction::ActionFocusKey::for_event(&event);
+        let action_focus = action_key
+            .as_ref()
+            .and_then(|key| self.action_focus.get(key))
+            .cloned();
+        let focused = action_key
+            .as_ref()
+            .is_some_and(|key| self.focused_action.as_ref() == Some(key));
+        let focus_reason = self.command_disabled_reason(&event);
+        let keyboard_event = event.clone();
+        let keyboard_key = action_key.clone();
 
         div()
-            .id(id)
+            .id(id.clone())
+            .debug_selector(move || id.to_string())
+            .relative()
             .flex_none()
             .px_3()
             .py_1()
@@ -1561,6 +1690,83 @@ impl SettingsPanel {
             .text_color(theme_color(normal.foreground))
             .whitespace_nowrap()
             .child(label)
+            .tooltip(move |_, cx| {
+                let source = source.clone();
+                let event = tooltip_event.clone();
+                cx.new(|cx| tooltip::SettingsCommandTooltip {
+                    _observer: source
+                        .upgrade()
+                        .map(|panel| cx.observe(&panel, |_, _, cx| cx.notify())),
+                    source,
+                    event,
+                })
+                .into()
+            })
+            .when_some(action_focus.clone(), |element, focus| {
+                element.track_focus(&focus).on_key_down(cx.listener(
+                    move |this, event: &gpui::KeyDownEvent, _, cx| {
+                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                            cx.stop_propagation();
+                            if keyboard_key
+                                .as_ref()
+                                .and_then(|key| this.action_focus.get(key))
+                                == Some(&focus)
+                            {
+                                this.request_event(keyboard_event.clone(), cx);
+                            }
+                        }
+                    },
+                ))
+            })
+            .when(focused, |element| {
+                element.when_some(focus_reason, |element, reason| {
+                    element.child(
+                        div()
+                            .id("settings-disabled-action-focus-reason")
+                            .debug_selector(|| "settings-disabled-action-focus-reason".into())
+                            .absolute()
+                            .bottom_full()
+                            .right_0()
+                            .max_w(px(360.0))
+                            .px_2()
+                            .py_1()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(theme_color(self.visual_theme.popup.border))
+                            .bg(theme_color(self.visual_theme.popup.background))
+                            .text_color(theme_color(self.visual_theme.popup.foreground))
+                            .child(reason),
+                    )
+                })
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    let admitted = this.event_is_admitted(&event);
+                    if let Some(key) = &action_key {
+                        cx.stop_propagation();
+                        if this.action_focus.get(key) != action_focus.as_ref() {
+                            return;
+                        }
+                        if let Some(focus) = &action_focus {
+                            window.focus(focus);
+                            cx.notify();
+                        }
+                    } else if admitted {
+                        cx.stop_propagation();
+                        window.focus(&this.focus_handle);
+                    }
+                    if !admitted {
+                        return;
+                    }
+                    if matches!(event, SettingsWindowEvent::PageNavigationRequested { .. })
+                        && this.model.selected_page_id() != &owning_page
+                    {
+                        return;
+                    }
+                    this.request_event(event.clone(), cx);
+                }),
+            )
             .when(enabled, |element| {
                 element
                     .hover(move |style| {
@@ -1576,14 +1782,6 @@ impl SettingsPanel {
                             .text_color(theme_color(pressed.foreground))
                     })
                     .cursor_pointer()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            window.focus(&this.focus_handle);
-                            cx.emit(event.clone());
-                        }),
-                    )
             })
     }
 }

@@ -51,16 +51,33 @@ impl SettingsSavedColorSwatch {
 
 /// App-neutral renderer for host-owned page custom body regions.
 #[derive(Clone)]
-pub struct SettingsPageBodyRenderer(Arc<dyn Fn(&SettingsPageCustomBodyId) -> Option<AnyElement>>);
+pub struct SettingsPageBodyRenderer(
+    Arc<
+        dyn Fn(
+            &SettingsPageCustomBodyId,
+            crate::SettingsInteractionAdmission,
+        ) -> Option<AnyElement>,
+    >,
+);
 
 impl SettingsPageBodyRenderer {
     /// Creates a page body renderer from a host callback.
-    pub fn new(render: impl Fn(&SettingsPageCustomBodyId) -> Option<AnyElement> + 'static) -> Self {
+    pub fn new(
+        render: impl Fn(
+            &SettingsPageCustomBodyId,
+            crate::SettingsInteractionAdmission,
+        ) -> Option<AnyElement>
+        + 'static,
+    ) -> Self {
         Self(Arc::new(render))
     }
 
-    pub(crate) fn render(&self, body_id: &SettingsPageCustomBodyId) -> Option<AnyElement> {
-        (self.0)(body_id)
+    pub(crate) fn render(
+        &self,
+        body_id: &SettingsPageCustomBodyId,
+        admission: crate::SettingsInteractionAdmission,
+    ) -> Option<AnyElement> {
+        (self.0)(body_id, admission)
     }
 }
 

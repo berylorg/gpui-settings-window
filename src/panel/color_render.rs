@@ -365,6 +365,9 @@ impl SettingsPanel {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
+                    if !this.picker_value_is_mutable(cx) {
+                        return;
+                    }
                     window.focus(&this.saved_color_grid_focus_handle);
                     this.focus_saved_color_swatch(swatch_id.clone(), cx);
                     this.apply_focused_saved_color_swatch(cx);

@@ -2086,7 +2086,7 @@ dependencies = [
 [[package]]
 name = "gpui-text-input"
 version = "0.1.0"
-source = "git+https://github.com/berylorg/gpui-text-input.git?rev=57d51db735890d5cc53ddc6f73feb2f5563f8e92#57d51db735890d5cc53ddc6f73feb2f5563f8e92"
+source = "git+https://github.com/berylorg/gpui-text-input.git?rev=b1e5c9681d3a1af1e4723e750508b2dda0c03f87#b1e5c9681d3a1af1e4723e750508b2dda0c03f87"
 dependencies = [
  "gpui",
  "gpui-scrollbar",

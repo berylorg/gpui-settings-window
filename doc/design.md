@@ -168,6 +168,14 @@ Choice rows carry host-supplied stable option values and labels. The crate rende
 
 Settings-window options may configure app-neutral text-input retention limits, including undo/redo byte budgets. These limits apply to reusable settings text fields and color-picker component inputs without defining host setting schemas, validation, persistence, or apply semantics.
 
+Each primary or secondary text-capable field may additionally carry an optional maximum normalized
+UTF-8 value length. Models reject a field value exceeding its supplied limit before publication;
+the mounted owned-value input enforces that same limit before every mutation. Oversize edits leave
+text, caret, selection, composition, scroll and history intact and emit a bounded field-identified
+refusal event rather than `FieldChanged`. Limit and availability updates preserve the existing input
+entity and its valid editor state. Choice and color controls retain their existing typed presentation
+constraints; this limit does not define application validation or persistence policy.
+
 Events refer to stable identifiers so hosts can map user edits, page navigation requests, row action requests, page action requests, and page-local split-list item selections back to their own settings schema and navigation model.
 
 ## Page Navigation
@@ -269,14 +277,18 @@ Text settings are represented as plain string fields.
 
 Single-line and multiline text fields use the same settings row, value, validation-message, focus-order, and event boundary. This crate maps text edits to `FieldChanged` events and leaves validation, normalization beyond editor-level text policy, persistence, and apply behavior to the host application.
 
-For each primary or secondary field backed by a nested text input, including text, numeric,
-multiline, and color fields, the host may supply the app-neutral pre-mutation edit filter accepted by
-`gpui-text-input` and a rejection-feedback callback. The settings row forwards the proposed bounded
-replacement range and inserted UTF-8 text to that filter before mutation and forwards rejection
-feedback with the field's stable identity. A rejected edit is atomic in the nested text input: it
-emits no `FieldChanged` event and does not change text, caret, selection, marked-text state, scroll,
-or undo/redo history. This filter is editor-level input policy, not host domain validation; field
-validity remains a separate host-supplied presentation state.
+Text-capable primary and secondary fields forward the owned-value byte limit into their nested
+input and return bounded refusal metadata with the stable field identity. They do not forward an
+arbitrary host edit filter or attempted payload. Refusal emits no `FieldChanged` event and leaves
+the nested editor unchanged. This byte admission is separate from host domain validation and
+host-supplied field validity.
+
+Custom page bodies remain host-owned interactive content. Their renderer receives a live read-only
+interaction admission token tied to the containing panel lifetime. A gated or released panel closes
+that token synchronously, before another callback may mutate host state. Hosts consult the token
+in retained custom callbacks and update their owned editors' read-only configuration when publishing
+the coherent gated model. A cached boolean is insufficient. The widget gates its own controls;
+custom content keeps its own selection, copy and scrolling routes under this explicit host contract.
 
 Multiline text fields reserve ordinary text editing behavior for the field itself. The settings window must expose accept, apply, cancel, and row actions through settings-window controls or app-neutral commands rather than relying on multiline `Enter` as an accept shortcut.
 

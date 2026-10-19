@@ -1,4 +1,7 @@
-use super::{SettingsFieldId, SettingsPageId, SettingsRowAction};
+use super::{
+    SettingsFieldAvailability, SettingsFieldId, SettingsFieldValidity, SettingsPageId,
+    SettingsRowAction,
+};
 
 /// Presentation kind for an editable settings field row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +49,9 @@ pub struct SettingsRowDetailField {
     error: Option<String>,
     modified: bool,
     choices: Vec<SettingsChoiceOption>,
+    availability: SettingsFieldAvailability,
+    validity: SettingsFieldValidity,
+    value_byte_limit: Option<usize>,
 }
 
 /// One app-neutral row in a right-pane settings page.
@@ -62,6 +68,9 @@ pub struct SettingsRow {
     actions: Vec<SettingsRowAction>,
     choices: Vec<SettingsChoiceOption>,
     detail_field: Option<SettingsRowDetailField>,
+    availability: SettingsFieldAvailability,
+    validity: SettingsFieldValidity,
+    value_byte_limit: Option<usize>,
 }
 
 impl SettingsChoiceOption {
@@ -104,6 +113,9 @@ impl SettingsRow {
             actions: Vec::new(),
             choices: Vec::new(),
             detail_field: None,
+            availability: SettingsFieldAvailability::Available,
+            validity: SettingsFieldValidity::Valid,
+            value_byte_limit: None,
         }
     }
 
@@ -127,6 +139,9 @@ impl SettingsRow {
             actions: Vec::new(),
             choices: Vec::new(),
             detail_field: None,
+            availability: SettingsFieldAvailability::Available,
+            validity: SettingsFieldValidity::Valid,
+            value_byte_limit: None,
         }
     }
 
@@ -148,6 +163,9 @@ impl SettingsRow {
             actions: vec![action],
             choices: Vec::new(),
             detail_field: None,
+            availability: SettingsFieldAvailability::Available,
+            validity: SettingsFieldValidity::Valid,
+            value_byte_limit: None,
         }
     }
 
@@ -295,6 +313,9 @@ impl SettingsRowDetailField {
             error: None,
             modified: false,
             choices: Vec::new(),
+            availability: SettingsFieldAvailability::Available,
+            validity: SettingsFieldValidity::Valid,
+            value_byte_limit: None,
         }
     }
 
@@ -352,5 +373,63 @@ impl SettingsRowDetailField {
 
     pub(crate) fn set_value(&mut self, value: impl Into<String>) {
         self.value = value.into();
+    }
+}
+
+impl SettingsRow {
+    pub fn with_availability(mut self, availability: SettingsFieldAvailability) -> Self {
+        self.availability = availability;
+        self
+    }
+
+    pub fn availability(&self) -> &SettingsFieldAvailability {
+        &self.availability
+    }
+
+    pub fn with_validity(mut self, validity: SettingsFieldValidity) -> Self {
+        self.validity = validity;
+        self
+    }
+
+    pub fn validity(&self) -> SettingsFieldValidity {
+        self.validity
+    }
+
+    pub fn with_value_byte_limit(mut self, limit: Option<usize>) -> Self {
+        self.value_byte_limit = limit;
+        self
+    }
+
+    pub fn value_byte_limit(&self) -> Option<usize> {
+        self.value_byte_limit
+    }
+}
+
+impl SettingsRowDetailField {
+    pub fn with_availability(mut self, availability: SettingsFieldAvailability) -> Self {
+        self.availability = availability;
+        self
+    }
+
+    pub fn availability(&self) -> &SettingsFieldAvailability {
+        &self.availability
+    }
+
+    pub fn with_validity(mut self, validity: SettingsFieldValidity) -> Self {
+        self.validity = validity;
+        self
+    }
+
+    pub fn validity(&self) -> SettingsFieldValidity {
+        self.validity
+    }
+
+    pub fn with_value_byte_limit(mut self, limit: Option<usize>) -> Self {
+        self.value_byte_limit = limit;
+        self
+    }
+
+    pub fn value_byte_limit(&self) -> Option<usize> {
+        self.value_byte_limit
     }
 }

@@ -10,6 +10,12 @@ Sometimes known as: settings shell, preferences window
 
 Hosts own validation, persistence, apply semantics, cancel semantics, app-specific setting events, and any custom page body content.
 
+Custom body renderers receive a live panel-lifetime interaction admission token. Hosts check it in
+retained custom callbacks and synchronously publish read-only state to custom editors with the
+gated model, while preserving selection, copy and scrolling. Gate changes close admission before
+subsequent callbacks; releasing the panel permanently closes its tokens. Custom-body authority
+remains with the host rather than an opaque widget overlay.
+
 # References
 
 Contracts:

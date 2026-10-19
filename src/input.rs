@@ -7,7 +7,10 @@ use gpui_text_input::{
 };
 
 use crate::SettingsInputTheme;
-use crate::model::{SettingsFieldId, SettingsFieldKind, SettingsWindowEvent};
+use crate::model::{
+    SettingsFieldId, SettingsFieldInputRefusal, SettingsFieldKind, SettingsFieldValidity,
+    SettingsWindowEvent,
+};
 
 mod bindings;
 mod render;
@@ -38,6 +41,9 @@ pub(crate) struct SettingsFieldInput {
     font_size: f32,
     visual_theme: SettingsInputTheme,
     text_input_undo_byte_limit: usize,
+    read_only: bool,
+    validity: SettingsFieldValidity,
+    value_byte_limit: Option<usize>,
 }
 
 impl EventEmitter<SettingsFieldInputEvent> for SettingsFieldInput {}
@@ -70,7 +76,60 @@ impl SettingsFieldInput {
             font_size,
             visual_theme,
             text_input_undo_byte_limit,
+            read_only: false,
+            validity: SettingsFieldValidity::Valid,
+            value_byte_limit: None,
         }
+    }
+
+    pub(crate) fn field_id(&self) -> &SettingsFieldId {
+        &self.field_id
+    }
+
+    pub(crate) fn text_input_for_test(&self) -> Entity<TextInput> {
+        self.input.clone()
+    }
+
+    pub(crate) fn sync_admission(
+        &mut self,
+        read_only: bool,
+        validity: SettingsFieldValidity,
+        limit: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_only = read_only;
+        self.validity = validity;
+        self.value_byte_limit = limit;
+        self.input.update(cx, |input, cx| {
+            input.set_read_only(read_only, cx);
+            input
+                .set_value_byte_limit(limit, cx)
+                .expect("validated settings field fits its value limit");
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn sync_field(
+        &mut self,
+        value: &str,
+        kind: SettingsFieldKind,
+        error: Option<&str>,
+        font_size: f32,
+        undo_byte_limit: usize,
+        read_only: bool,
+        validity: SettingsFieldValidity,
+        limit: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.value != value {
+            self.input.update(cx, |input, cx| {
+                input
+                    .set_value_byte_limit(None, cx)
+                    .expect("removing a value limit is valid");
+            });
+        }
+        self.sync(value, kind, error, font_size, undo_byte_limit, cx);
+        self.sync_admission(read_only, validity, limit, cx);
     }
 
     pub(crate) fn sync(
@@ -157,6 +216,7 @@ impl SettingsFieldInput {
         );
         self.focus_handle = self.input.read(cx).tab_focus_handle();
         Self::subscribe_to_text_input(&self.input, cx);
+        self.sync_admission(self.read_only, self.validity, self.value_byte_limit, cx);
         cx.notify();
     }
 
@@ -171,6 +231,13 @@ impl SettingsFieldInput {
         cx: &mut Context<Self>,
     ) {
         let field_changed = self.field_id != field_id;
+        if field_changed || self.value != value {
+            self.input.update(cx, |input, cx| {
+                input
+                    .set_value_byte_limit(None, cx)
+                    .expect("removing a value limit is valid");
+            });
+        }
         self.field_id = field_id;
         self.sync(
             value,
@@ -206,11 +273,17 @@ impl SettingsFieldInput {
     }
 
     pub(crate) fn replace_all_for_test(&mut self, value: &str, cx: &mut Context<Self>) {
-        self.set_text_without_event(value, cx);
+        if self.read_only {
+            return;
+        }
+        if !self.input.update(cx, |input, cx| input.set_text(value, cx)) {
+            return;
+        }
+        self.value = self.input.read(cx).text().to_owned();
         cx.emit(SettingsFieldInputEvent::Window(
             SettingsWindowEvent::FieldChanged {
                 field_id: self.field_id.clone(),
-                value: value.to_owned(),
+                value: self.value.clone(),
             },
         ));
         cx.notify();
@@ -222,10 +295,10 @@ impl SettingsFieldInput {
     }
 
     fn set_text_without_event(&mut self, value: &str, cx: &mut Context<Self>) {
-        self.value = value.to_owned();
-        let _ = self.input.update(cx, |input, cx| {
+        self.input.update(cx, |input, cx| {
             input.set_text(value, cx);
         });
+        self.value = self.input.read(cx).text().to_owned();
     }
 
     fn line_height(&self) -> Pixels {
@@ -246,7 +319,26 @@ impl SettingsFieldInput {
         event: &TextInputEvent,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(event, TextInputEvent::Changed(_)) {
+        if self.input != *input {
+            return;
+        }
+        if let TextInputEvent::ValueLimitExceeded {
+            limit,
+            attempted_bytes,
+        } = event
+        {
+            cx.emit(SettingsFieldInputEvent::Window(
+                SettingsWindowEvent::FieldInputRefused {
+                    field_id: self.field_id.clone(),
+                    reason: SettingsFieldInputRefusal::ValueByteLimitExceeded {
+                        limit: *limit,
+                        attempted_bytes: *attempted_bytes,
+                    },
+                },
+            ));
+            return;
+        }
+        if self.read_only || !matches!(event, TextInputEvent::Changed(_)) {
             return;
         }
 
@@ -266,7 +358,7 @@ impl SettingsFieldInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.kind != SettingsFieldKind::Color {
+        if self.read_only || self.kind != SettingsFieldKind::Color {
             return;
         }
         if self.role != SettingsFieldInputRole::Row {

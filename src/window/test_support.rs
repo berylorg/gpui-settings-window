@@ -1,6 +1,15 @@
 use super::*;
 
 impl SettingsWindowView {
+    pub fn text_input_for_field_for_test(
+        &self,
+        field_id: &crate::SettingsFieldId,
+        cx: &App,
+    ) -> Option<Entity<gpui_text_input::TextInput>> {
+        self.settings_panel
+            .read(cx)
+            .text_input_for_field_for_test(field_id, cx)
+    }
     pub fn demand_page_split_range_for_test(
         &mut self,
         range: std::ops::Range<usize>,

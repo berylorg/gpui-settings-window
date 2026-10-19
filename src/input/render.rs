@@ -51,7 +51,8 @@ impl Render for SettingsFieldInput {
 
 impl SettingsFieldInput {
     fn border_color(&self, window: &Window) -> gpui::Rgba {
-        if self.error.is_some() || self.has_invalid_color_draft() {
+        if self.validity == crate::SettingsFieldValidity::Invalid || self.has_invalid_color_draft()
+        {
             theme_rgb(self.visual_theme.error_border)
         } else if self.focus_handle.is_focused(window) {
             theme_rgb(self.visual_theme.active_border)

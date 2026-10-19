@@ -619,7 +619,7 @@ fn emits_section_text_button_and_close_events(cx: &mut gpui::TestAppContext) {
         .window_handle()
         .update(cx, |view, window, cx| {
             view.select_section_for_test(SettingsSectionId::from("editor"), window, cx);
-            view.replace_field_text_for_test(&SettingsFieldId::from("font_family"), "Fira", cx);
+            view.replace_field_text_for_test(&SettingsFieldId::from("tab_size"), "8", cx);
             view.accept_for_test(cx);
             view.apply_for_test(cx);
             view.cancel_for_test(cx);
@@ -638,8 +638,8 @@ fn emits_section_text_button_and_close_events(cx: &mut gpui::TestAppContext) {
         "section selection should not also emit a redundant root-page navigation event"
     );
     assert!(events.contains(&SettingsWindowEvent::FieldChanged {
-        field_id: SettingsFieldId::from("font_family"),
-        value: String::from("Fira"),
+        field_id: SettingsFieldId::from("tab_size"),
+        value: String::from("8"),
     }));
     assert!(events.contains(&SettingsWindowEvent::AcceptRequested));
     assert!(events.contains(&SettingsWindowEvent::ApplyRequested));
@@ -840,6 +840,20 @@ fn emits_page_navigation_and_page_action_events(cx: &mut gpui::TestAppContext) {
                 SettingsRowActionId::from("discard"),
                 cx,
             ));
+            assert!(!view.request_page_action_for_test(
+                SettingsPageId::from("theme_editor"),
+                SettingsPageActionId::from("save"),
+                cx,
+            ));
+        })
+        .expect("settings window should update");
+
+    let mut selected = settings_model_with_pages();
+    selected.select_page("theme_editor").unwrap();
+    handle.update_model(cx, selected).unwrap();
+    handle
+        .window_handle()
+        .update(cx, |view, _, cx| {
             assert!(view.request_page_action_for_test(
                 SettingsPageId::from("theme_editor"),
                 SettingsPageActionId::from("save"),

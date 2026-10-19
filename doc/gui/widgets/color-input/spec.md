@@ -44,10 +44,10 @@ preflight rejected.
 
 Typing in the field emits `FieldChanged`. Valid RGB hex input is normalized to canonical lowercase `#rrggbb`. Invalid text emits the raw draft value while the preview keeps the latest valid color or fallback color.
 
-When the host supplies an app-neutral pre-mutation edit filter, `color-input` forwards it and its
-rejection result unchanged to the nested `text-input`. A rejected proposal emits no `FieldChanged`,
-does not update the swatch or picker, and preserves text, caret, selection, marked-text state,
-scroll, and undo/redo history exactly as required by the text-input contract.
+When the field carries a value byte limit, `color-input` forwards it into the nested `text-input`.
+Oversize text changes emit bounded refusal metadata and no `FieldChanged`, preserve the nested
+editor, and do not update the swatch or picker. Picker-produced canonical values obey the same
+field limit before publication. No arbitrary host edit-filter callback is part of this boundary.
 
 `ctrl-space` opens the picker for row color inputs. Pressing the preview swatch focuses the field and opens the picker. The picker emits canonical hex changes through the same field-change path.
 

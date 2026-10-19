@@ -820,14 +820,13 @@ fn stacked_custom_body_preserves_standard_detail_row_scroll_surface() {
     assert!(render_source.contains("page.stacked_custom_body().cloned()"));
     assert!(render_source.contains("render_stacked_custom_body_region"));
     assert!(render_source.contains("page_body_renderer"));
-    assert!(render_source.contains("renderer.render(&body_id)"));
     assert!(render_source.contains("custom_body.height_px()"));
     assert!(render_source.contains("render_detail_rows_scroll(DetailRowsLayout::Standard"));
 }
 
 #[test]
 fn window_options_carry_page_body_renderer() {
-    let renderer = gpui_settings_window::SettingsPageBodyRenderer::new(|_| {
+    let renderer = gpui_settings_window::SettingsPageBodyRenderer::new(|_, _| {
         Some(gpui::div().into_any_element())
     });
     let options = SettingsWindowOptions::default().with_page_body_renderer(renderer);

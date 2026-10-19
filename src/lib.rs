@@ -144,8 +144,10 @@ pub use diagnostics::{
 };
 pub use model::{
     MAX_PAGE_DETAIL_ROWS, MAX_PAGE_SPLIT_ACTIVE_PAGES, MAX_PAGE_SPLIT_WORK_ITEMS,
-    SettingsActionAvailability, SettingsBreadcrumbSegment, SettingsChoiceOption, SettingsFieldId,
-    SettingsFieldKind, SettingsPage, SettingsPageAction, SettingsPageActionId,
+    SettingsActionAvailability, SettingsBreadcrumbSegment, SettingsChoiceOption,
+    SettingsFieldAvailability, SettingsFieldId, SettingsFieldInputRefusal, SettingsFieldKind,
+    SettingsFieldValidity, SettingsFooterCommand, SettingsInteractionAdmission,
+    SettingsInteractionGate, SettingsPage, SettingsPageAction, SettingsPageActionId,
     SettingsPageActionPriority, SettingsPageBodyLayout, SettingsPageCustomBody,
     SettingsPageCustomBodyId, SettingsPageId, SettingsPageSplitDelivery,
     SettingsPageSplitDeliveryError, SettingsPageSplitFocusProbe, SettingsPageSplitFocusResolution,

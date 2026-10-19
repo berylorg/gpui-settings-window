@@ -21,11 +21,11 @@ use crate::input::{
     ensure_settings_input_bindings,
 };
 use crate::model::{
-    SettingsFieldId, SettingsFieldKind, SettingsPageActionId, SettingsPageId,
-    SettingsPageSplitDelivery, SettingsPageSplitDeliveryError, SettingsPageSplitItemId,
-    SettingsPageSplitPageResult, SettingsPageSplitWorkReceiver, SettingsRow, SettingsRowActionId,
-    SettingsSavedColorSwatchId, SettingsSectionId, SettingsWindowEvent, SettingsWindowModel,
-    element_id_suffix,
+    SettingsFieldId, SettingsFieldKind, SettingsFieldValidity, SettingsFooterCommand,
+    SettingsPageActionId, SettingsPageId, SettingsPageSplitDelivery,
+    SettingsPageSplitDeliveryError, SettingsPageSplitItemId, SettingsPageSplitPageResult,
+    SettingsPageSplitWorkReceiver, SettingsRow, SettingsRowActionId, SettingsSavedColorSwatchId,
+    SettingsSectionId, SettingsWindowEvent, SettingsWindowModel, element_id_suffix,
 };
 use crate::{
     RgbColor, SettingsPageBodyRenderer, SettingsSavedColorSwatch, SettingsWindowDiagnostics,
@@ -36,11 +36,13 @@ use crate::{
 mod color_paint;
 mod color_pointer;
 mod color_render;
+mod interaction;
 mod picker;
 mod render;
 mod scrollbar;
 mod split;
 mod test_support;
+mod tooltip;
 
 use split::SplitPager;
 
@@ -88,6 +90,9 @@ struct SettingsFieldSnapshot {
     value: String,
     kind: SettingsFieldKind,
     error: Option<String>,
+    read_only: bool,
+    validity: SettingsFieldValidity,
+    value_byte_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,8 +127,12 @@ struct SettingsPanelDiagnosticsState {
 /// GPUI entity that renders the reusable settings panel.
 pub struct SettingsPanel {
     model: SettingsWindowModel,
+    interaction_admission: Rc<std::cell::Cell<bool>>,
     fields: HashMap<SettingsFieldId, Entity<SettingsFieldInput>>,
     focus_handle: FocusHandle,
+    footer_focus: [FocusHandle; 3],
+    action_focus: HashMap<interaction::ActionFocusKey, FocusHandle>,
+    focused_action: Option<interaction::ActionFocusKey>,
     split_focus_handle: FocusHandle,
     saved_color_grid_focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
@@ -176,6 +185,10 @@ impl SettingsWindowModel {
                         value: row.value().to_owned(),
                         kind: row.kind(),
                         error: row.error().map(str::to_owned),
+                        read_only: !self.interaction_gate().is_open()
+                            || !row.availability().is_available(),
+                        validity: row.validity(),
+                        value_byte_limit: row.value_byte_limit(),
                     });
                 }
                 if let Some(field) = row.detail_field().filter(|field| field.uses_text_input()) {
@@ -184,6 +197,10 @@ impl SettingsWindowModel {
                         value: field.value().to_owned(),
                         kind: field.kind(),
                         error: field.error().map(str::to_owned),
+                        read_only: !self.interaction_gate().is_open()
+                            || !field.availability().is_available(),
+                        validity: field.validity(),
+                        value_byte_limit: field.value_byte_limit(),
                     });
                 }
                 fields
@@ -253,9 +270,15 @@ impl SettingsPanel {
         ensure_settings_panel_bindings(cx);
         ensure_color_component_input_bindings(cx);
         let mut panel = Self {
+            interaction_admission: Rc::new(std::cell::Cell::new(
+                model.interaction_gate().is_open(),
+            )),
             model,
             fields: HashMap::new(),
             focus_handle: cx.focus_handle(),
+            footer_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
+            action_focus: HashMap::new(),
+            focused_action: None,
             split_focus_handle: cx.focus_handle(),
             saved_color_grid_focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
@@ -296,6 +319,7 @@ impl SettingsPanel {
         };
         panel.sync_latest_known_color_values();
         panel.rebuild_fields(window, cx);
+        panel.sync_action_focus(cx);
         panel.sync_split_scroll_for_model(None, None, window, cx);
         cx.on_release_in(window, |panel, window, cx| {
             panel.split_pager.clear();
@@ -317,7 +341,14 @@ impl SettingsPanel {
         let previous_page = self.model.selected_page_id().clone();
         let previous_content_offset = self.scroll_handle.offset();
         let previous_split_selection = selected_page_split_selection(&self.model);
+        self.interaction_admission
+            .set(model.interaction_gate().is_open());
         self.model = model;
+        if !self.interaction_is_open() {
+            self.color_picker_drag_target = None;
+            self.color_picker_pending_outside_mouse_up_field = None;
+        }
+        self.sync_action_focus(cx);
         let selected_page_changed = previous_page != *self.model.selected_page_id();
         self.sync_latest_known_color_values();
         let input_sync_entity_count = self.sync_fields(window, cx);
@@ -325,6 +356,7 @@ impl SettingsPanel {
             self.sync_choice_popup();
             self.sync_color_picker(cx);
         }
+        self.sync_picker_admission(cx);
         self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection, window, cx);
 
         if selected_page_changed {
@@ -617,7 +649,14 @@ impl SettingsPanel {
         else {
             return false;
         };
-        self.color_picker_selected_swatch = Some(focused.clone());
+        let focused = focused.clone();
+        let Some(field_id) = self.color_picker_field.clone() else {
+            return false;
+        };
+        if !self.value_is_admitted(&field_id, &color.to_hex(), cx) {
+            return false;
+        }
+        self.color_picker_selected_swatch = Some(focused);
         self.apply_color_picker_swatch(color, cx);
         true
     }
@@ -735,7 +774,7 @@ impl SettingsPanel {
 
     /// Emits an apply request.
     pub fn apply_for_test(&mut self, cx: &mut Context<Self>) {
-        cx.emit(SettingsWindowEvent::ApplyRequested);
+        self.request_event(SettingsWindowEvent::ApplyRequested, cx);
     }
 
     /// Emits a row action request when the row carries that action.
@@ -749,11 +788,13 @@ impl SettingsPanel {
             return false;
         }
 
-        cx.emit(SettingsWindowEvent::RowActionRequested {
-            field_id,
-            action_id,
-        });
-        true
+        self.request_event(
+            SettingsWindowEvent::RowActionRequested {
+                field_id,
+                action_id,
+            },
+            cx,
+        )
     }
 
     /// Emits a page navigation request when the target page exists.
@@ -766,8 +807,7 @@ impl SettingsPanel {
             return false;
         }
 
-        cx.emit(SettingsWindowEvent::PageNavigationRequested { page_id });
-        true
+        self.request_event(SettingsWindowEvent::PageNavigationRequested { page_id }, cx)
     }
 
     /// Emits a page action request when the page carries an enabled action.
@@ -781,8 +821,10 @@ impl SettingsPanel {
             return false;
         }
 
-        cx.emit(SettingsWindowEvent::PageActionRequested { page_id, action_id });
-        true
+        self.request_event(
+            SettingsWindowEvent::PageActionRequested { page_id, action_id },
+            cx,
+        )
     }
 
     /// Emits a split item selection request when the page carries that item.
@@ -796,8 +838,10 @@ impl SettingsPanel {
             return false;
         }
 
-        cx.emit(SettingsWindowEvent::PageSplitItemSelected { page_id, item_id });
-        true
+        self.request_event(
+            SettingsWindowEvent::PageSplitItemSelected { page_id, item_id },
+            cx,
+        )
     }
 
     /// Emits a field change when a choice field carries that option.
@@ -811,18 +855,17 @@ impl SettingsPanel {
             return false;
         }
 
-        cx.emit(SettingsWindowEvent::FieldChanged { field_id, value });
-        true
+        self.request_event(SettingsWindowEvent::FieldChanged { field_id, value }, cx)
     }
 
     /// Emits an accept request.
     pub fn accept_for_test(&mut self, cx: &mut Context<Self>) {
-        cx.emit(SettingsWindowEvent::AcceptRequested);
+        self.request_event(SettingsWindowEvent::AcceptRequested, cx);
     }
 
     /// Emits a cancel request.
     pub fn cancel_for_test(&mut self, cx: &mut Context<Self>) {
-        cx.emit(SettingsWindowEvent::CancelRequested);
+        self.request_event(SettingsWindowEvent::CancelRequested, cx);
     }
 
     fn rebuild_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -841,12 +884,15 @@ impl SettingsPanel {
         for field in self.model.text_input_field_snapshots() {
             if let Some(input) = previous.remove(&field.field_id) {
                 let _ = input.update(cx, |input, cx| {
-                    input.sync(
+                    input.sync_field(
                         field.value.as_str(),
                         field.kind,
                         field.error.as_deref(),
                         self.font_size,
                         self.text_input_undo_byte_limit,
+                        field.read_only,
+                        field.validity,
+                        field.value_byte_limit,
                         cx,
                     );
                     input.sync_visual_theme(&self.visual_theme.input, cx);
@@ -870,7 +916,7 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) -> Entity<SettingsFieldInput> {
         let input = cx.new(|cx| {
-            SettingsFieldInput::new(
+            let mut input = SettingsFieldInput::new(
                 field.field_id.clone(),
                 field.value.as_str(),
                 field.kind,
@@ -880,7 +926,9 @@ impl SettingsPanel {
                 self.visual_theme.input.clone(),
                 self.text_input_undo_byte_limit,
                 cx,
-            )
+            );
+            input.sync_admission(field.read_only, field.validity, field.value_byte_limit, cx);
+            input
         });
         self.subscribe_to_field(&input, window, cx);
 
@@ -929,17 +977,31 @@ impl SettingsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        cx.subscribe_in(input, window, |this, _, event, window, cx| match event {
-            SettingsFieldInputEvent::Window(SettingsWindowEvent::FieldChanged {
-                field_id,
-                value,
-            }) => this.handle_field_changed(field_id, value, cx),
-            SettingsFieldInputEvent::Window(event) => cx.emit(event.clone()),
-            SettingsFieldInputEvent::OpenColorPickerRequested(field_id) => {
-                this.open_color_picker(field_id.clone(), window, cx);
-                cx.emit(SettingsWindowEvent::ColorPickerRequested {
-                    field_id: field_id.clone(),
-                });
+        cx.subscribe_in(input, window, |this, input, event, window, cx| {
+            if !this.input_is_current(&input, cx) {
+                return;
+            }
+            match event {
+                SettingsFieldInputEvent::Window(SettingsWindowEvent::FieldChanged {
+                    field_id,
+                    value,
+                }) => this.handle_field_changed(field_id, value, cx),
+                SettingsFieldInputEvent::Window(event) => {
+                    this.request_event(event.clone(), cx);
+                }
+                SettingsFieldInputEvent::OpenColorPickerRequested(field_id) => {
+                    if this.field_is_mutable(field_id) {
+                        this.open_color_picker(field_id.clone(), window, cx);
+                        if this.color_picker_field.as_ref() == Some(field_id) {
+                            this.request_event(
+                                SettingsWindowEvent::ColorPickerRequested {
+                                    field_id: field_id.clone(),
+                                },
+                                cx,
+                            );
+                        }
+                    }
+                }
             }
         })
         .detach();
@@ -978,6 +1040,9 @@ impl SettingsPanel {
     }
 
     fn toggle_choice_popup(&mut self, field_id: SettingsFieldId, cx: &mut Context<Self>) {
+        if !self.field_is_mutable(&field_id) {
+            return;
+        }
         if self.model.field_kind(&field_id) != Some(SettingsFieldKind::Choice) {
             return;
         }
@@ -1001,11 +1066,11 @@ impl SettingsPanel {
         value: String,
         cx: &mut Context<Self>,
     ) {
-        if !self.row_has_choice(&field_id, value.as_str()) {
+        if !self.field_is_mutable(&field_id) || !self.row_has_choice(&field_id, value.as_str()) {
             return;
         }
         self.choice_popup_field = None;
-        cx.emit(SettingsWindowEvent::FieldChanged { field_id, value });
+        self.request_event(SettingsWindowEvent::FieldChanged { field_id, value }, cx);
         cx.notify();
     }
 
@@ -1102,12 +1167,36 @@ impl SettingsPanel {
         }
         targets.extend(
             self.model
+                .selected_page()
+                .actions()
+                .iter()
+                .filter_map(|action| {
+                    self.action_focus
+                        .get(&interaction::ActionFocusKey::Page(
+                            self.model.selected_page_id().clone(),
+                            action.action_id().clone(),
+                        ))
+                        .cloned()
+                }),
+        );
+        targets.extend(
+            self.model
                 .selected_text_input_field_ids()
                 .iter()
                 .filter_map(|field_id| self.input_for_field(field_id))
                 .map(|input| input.read(cx).tab_focus_handle()),
         );
 
+        for row in self.model.selected_rows() {
+            targets.extend(row.actions().iter().filter_map(|action| {
+                self.action_focus
+                    .get(&interaction::ActionFocusKey::Row(
+                        row.field_id().clone(),
+                        action.action_id().clone(),
+                    ))
+                    .cloned()
+            }));
+        }
         if self.color_picker_field.is_some() {
             if let Some(input) = self.color_picker_input.clone() {
                 targets.push(input.read(cx).tab_focus_handle());
@@ -1120,12 +1209,16 @@ impl SettingsPanel {
             targets.push(self.saved_color_grid_focus_handle.clone());
         }
 
+        targets.extend(self.footer_focus.iter().cloned());
         targets
     }
 
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.event_is_admitted(&SettingsWindowEvent::CancelRequested) {
+            return;
+        }
         window.focus(&self.focus_handle);
-        cx.emit(SettingsWindowEvent::CancelRequested);
+        self.request_event(SettingsWindowEvent::CancelRequested, cx);
     }
 
     fn split_previous(&mut self, _: &SplitPrevious, _: &mut Window, cx: &mut Context<Self>) {
@@ -1137,6 +1230,9 @@ impl SettingsPanel {
     }
 
     fn apply_split(&mut self, _: &ApplySplit, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.interaction_is_open() {
+            return;
+        }
         let Some(position) = self.split_pager.focused_position() else {
             return;
         };
@@ -1147,10 +1243,13 @@ impl SettingsPanel {
         else {
             return;
         };
-        cx.emit(SettingsWindowEvent::PageSplitItemSelected {
-            page_id: self.model.selected_page_id().clone(),
-            item_id,
-        });
+        self.request_event(
+            SettingsWindowEvent::PageSplitItemSelected {
+                page_id: self.model.selected_page_id().clone(),
+                item_id,
+            },
+            cx,
+        );
     }
 
     fn select_split_item_from_pointer(
@@ -1162,6 +1261,9 @@ impl SettingsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if !self.interaction_is_open() {
+            return false;
+        }
         if !self
             .split_pager
             .matches_current_item(&page_id, &source_key, logical_position, &item_id)
@@ -1172,11 +1274,16 @@ impl SettingsPanel {
         if !self.split_pager.focus_position(logical_position) {
             return false;
         }
-        cx.emit(SettingsWindowEvent::PageSplitItemSelected { page_id, item_id });
-        true
+        self.request_event(
+            SettingsWindowEvent::PageSplitItemSelected { page_id, item_id },
+            cx,
+        )
     }
 
     fn move_split_focus(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if !self.interaction_is_open() {
+            return;
+        }
         let Some(position) = self.split_pager.move_focus(delta) else {
             return;
         };
@@ -1191,14 +1298,18 @@ impl SettingsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.interaction_is_open() {
+            return;
+        }
         let previous_page = self.model.selected_page_id().clone();
         let previous_split_selection = selected_page_split_selection(&self.model);
         if self.model.select_section(section_id.clone()).is_err() {
             return;
         }
+        self.sync_action_focus(cx);
         self.sync_split_scroll_for_model(Some(previous_page), previous_split_selection, window, cx);
         self.reset_selected_page_view_state(window, cx);
-        cx.emit(SettingsWindowEvent::SectionSelected { section_id });
+        self.request_event(SettingsWindowEvent::SectionSelected { section_id }, cx);
         cx.notify();
     }
 

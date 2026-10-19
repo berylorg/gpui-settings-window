@@ -33,6 +33,9 @@ impl SettingsPanel {
         _: &mut Window,
         _: &mut Context<Self>,
     ) {
+        if !self.interaction_is_open() {
+            return;
+        }
         self.color_picker_drag_target = None;
         self.color_picker_pending_outside_mouse_up_field = None;
     }
@@ -43,6 +46,9 @@ impl SettingsPanel {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.interaction_is_open() {
+            return;
+        }
         self.color_picker_drag_target = None;
         let pending_field = self.color_picker_pending_outside_mouse_up_field.take();
         if pending_field.is_some() && pending_field == self.color_picker_field {
@@ -56,7 +62,7 @@ impl SettingsPanel {
         _: &mut Window,
         _: &mut Context<Self>,
     ) {
-        if event.button == MouseButton::Left {
+        if self.interaction_is_open() && event.button == MouseButton::Left {
             self.color_picker_pending_outside_mouse_up_field = self.color_picker_field.clone();
         }
     }
@@ -67,6 +73,9 @@ impl SettingsPanel {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.picker_value_is_mutable(cx) {
+            return;
+        }
         self.color_picker_drag_target = Some(ColorPickerDragTarget::MainPalette);
         self.drag_color_picker_main_palette_to(event.position, cx);
     }
@@ -77,6 +86,9 @@ impl SettingsPanel {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.picker_value_is_mutable(cx) {
+            return;
+        }
         self.color_picker_drag_target = Some(ColorPickerDragTarget::LightnessBar);
         self.drag_color_picker_lightness_to(event.position, cx);
     }
@@ -87,6 +99,9 @@ impl SettingsPanel {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.picker_value_is_mutable(cx) {
+            return;
+        }
         self.color_picker_drag_target = Some(ColorPickerDragTarget::NeutralStrip);
         self.drag_color_picker_neutral_strip_to(event.position, cx);
     }

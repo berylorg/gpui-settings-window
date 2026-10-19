@@ -60,6 +60,11 @@ to inline, contextual, and action-only row commands.
 
 Editable text, number, and multiline field rows delegate text editing to `text-input`. Color field rows use `color-input` for the color-specific preview, hex input, and picker relationship inside the row-owned shell. Choice rows open an anchored choice popup and emit field changes when an option is selected.
 
+A host may set a maximum normalized UTF-8 value length on a primary or secondary text-capable
+field. An edit exceeding it is refused before mutation, preserving the text, caret, selection,
+composition, scroll and history. Refusal emits bounded field-identified feedback, never a changed
+value or truncated prefix. Availability, validity and limit refreshes preserve the mounted editor.
+
 The host independently supplies available or unavailable and valid or invalid state for every
 primary and secondary field. An unavailable field accepts no mutation and opens no field popup; it
 may retain selection and copy behavior where its nested control supports read-only interaction. An
@@ -67,13 +72,11 @@ invalid field remains mutable when it is also available. The row does not derive
 validity, derive validity from message text, or decide whether either state should affect another
 field, navigation, or a settings-window command.
 
-Each text-input-backed primary or secondary field, including text, number, multiline, and color
-fields, accepts the optional app-neutral pre-mutation edit filter and rejection feedback callback
-provided for that field. The row forwards the proposed bounded replacement range and inserted UTF-8
-text to `text-input` before mutation and forwards any rejection feedback with the stable field
-identity. Rejection is atomic: the row emits no field-change event, and the nested text, caret,
-selection, marked-text state, scroll, and undo/redo history remain unchanged. The row does not retry,
-truncate, or reinterpret a rejected edit as host-domain validation.
+Text-capable primary and secondary fields configure their nested input's optional byte limit and
+forward bounded refusal metadata with the stable field identity. No arbitrary host edit-filter
+callback or attempted text is forwarded. Refusal emits no field-change event and preserves the
+nested text, caret, selection, marked-text state, scroll and undo/redo history. The row does not
+retry, truncate or reinterpret byte admission as host-domain validation.
 
 Enabled row action buttons emit `RowActionRequested`. Disabled row action buttons remain visibly and
 stably placed, emit no event, and require a host-supplied localized reason that their tooltip exposes
