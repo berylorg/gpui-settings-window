@@ -59,6 +59,19 @@ register duplicate action names even when their Rust types never cross a public 
 
 ## Presentation Model
 
+Base typography is host-supplied presentation state in `SettingsWindowOptions`: a finite positive
+logical-pixel font size and an optional nonempty font-family name. Defaults come from the
+settings-window widget roles; an absent family inherits the host/window font. Invalid typography
+is rejected explicitly before constructing or replacing options. Updating typography preserves
+the existing panel, text-input and picker entities, drafts, caret/selection, composition and undo
+history, current navigation, focus and scroll. All mounted text inputs and picker editors receive
+the new base size coherently; documented relative label sizes remain derived from that base.
+Transient choice/picker/tooltip surfaces inherit the same family. Host preview styles may supply
+their own explicit typography. A presentation-only typography update emits no field-change or
+domain command event and does not bypass interaction gates.
+The shell title derives its size as base plus four logical pixels, and the selected-page title
+as base plus two. Existing reduced secondary-label formulas retain their minimum readable size.
+
 The public model is section-and-page oriented. A settings window contains ordered broad sections for the left navigation. Each section owns one root page and may expose app-neutral subpages rendered in the right pane without creating nested sidebar rows.
 
 Broad section navigation is a statically bounded full-render surface. `MAX_SECTION_ROWS` is a

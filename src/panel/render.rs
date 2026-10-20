@@ -47,6 +47,9 @@ impl Render for SettingsPanel {
         let render_started = std::time::Instant::now();
         let element = div()
             .id("settings-panel")
+            .when_some(self.font_family.clone(), |element, family| {
+                element.font_family(family)
+            })
             .size_full()
             .bg(theme_color(self.visual_theme.window_background))
             .p_4()
@@ -71,7 +74,7 @@ impl Render for SettingsPanel {
                     .on_action(cx.listener(Self::focus_prev))
                     .child(
                         div()
-                            .text_size(px(18.0))
+                            .text_size(px(self.font_size + 4.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Settings"),
                     )
@@ -626,7 +629,7 @@ impl SettingsPanel {
                                     .flex_1()
                                     .min_w_0()
                                     .whitespace_normal()
-                                    .text_size(px(16.0))
+                                    .text_size(px(self.font_size + 2.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(title),
                             )

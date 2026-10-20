@@ -49,6 +49,17 @@ pub(crate) struct SettingsFieldInput {
 impl EventEmitter<SettingsFieldInputEvent> for SettingsFieldInput {}
 
 impl SettingsFieldInput {
+    pub(crate) fn font_size_for_test(&self) -> f32 {
+        self.font_size
+    }
+
+    pub(crate) fn sync_font_size(&mut self, font_size: f32, cx: &mut Context<Self>) {
+        if self.font_size != font_size {
+            self.font_size = font_size;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn new(
         field_id: SettingsFieldId,
         value: &str,

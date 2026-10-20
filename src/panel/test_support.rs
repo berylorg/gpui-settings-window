@@ -6,6 +6,47 @@ use crate::color_picker::{
 };
 
 impl SettingsPanel {
+    pub fn typography_for_test(&self, cx: &App) -> (f32, Option<String>, Vec<f32>) {
+        let sizes = self
+            .fields
+            .values()
+            .chain(self.color_picker_input.iter())
+            .map(|input| input.read(cx).font_size_for_test())
+            .chain(
+                self.color_picker_channel_inputs
+                    .iter()
+                    .map(|slot| slot.input.read(cx).font_size_for_test()),
+            )
+            .collect();
+        (
+            self.font_size,
+            self.font_family.as_ref().map(|family| family.to_string()),
+            sizes,
+        )
+    }
+
+    pub fn text_input_for_color_channel_for_test(
+        &self,
+        field: &str,
+        cx: &App,
+    ) -> Option<Entity<gpui_text_input::TextInput>> {
+        let field = ColorPickerChannelField::from_test_key(field)?;
+        self.color_picker_channel_input(field)
+            .map(|input| input.read(cx).text_input_for_test())
+    }
+
+    pub fn toggle_choice_popup_for_test(
+        &mut self,
+        field_id: SettingsFieldId,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_choice_popup(field_id, cx);
+    }
+
+    pub fn active_choice_popup_for_test(&self) -> Option<SettingsFieldId> {
+        self.choice_popup_field.clone()
+    }
+
     pub fn text_input_for_color_picker_for_test(
         &self,
         cx: &App,

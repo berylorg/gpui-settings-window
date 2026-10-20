@@ -34,6 +34,21 @@ pub(crate) struct ColorComponentInput {
 impl EventEmitter<ColorComponentInputEvent> for ColorComponentInput {}
 
 impl ColorComponentInput {
+    pub(crate) fn font_size_for_test(&self) -> f32 {
+        self.font_size
+    }
+
+    pub(crate) fn text_input_for_test(&self) -> Entity<TextInput> {
+        self.input.clone()
+    }
+
+    pub(crate) fn sync_font_size(&mut self, font_size: f32, cx: &mut Context<Self>) {
+        if self.font_size != font_size {
+            self.font_size = font_size;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn new(
         field: ColorPickerChannelField,
         value: &str,

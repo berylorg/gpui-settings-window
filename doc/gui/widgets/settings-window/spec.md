@@ -47,6 +47,14 @@ The selected-page body is one of detail rows only, page-local split list plus de
 
 The default window is dark themed. The outer content fills the OS window, uses the configured window background, and contains a rounded bordered panel with internal padding. Text uses the configured settings font size.
 
+Base size and optional family are supplied through host presentation options. An absent family
+inherits the host/window font. A typography refresh updates mounted text controls in place while
+preserving local editing, focus, navigation and scrolling state, and emits no setting-change event.
+Labels using a reduced size retain their existing documented derivation from the configured base.
+The shell and selected-page title sizes derive from the base plus four and two logical pixels,
+respectively. Reduced secondary labels retain their existing minimum readable size.
+Explicit split-item preview typography remains local to that preview.
+
 Section buttons, page buttons, row action buttons, and bottom command buttons use the configured primary or secondary button themes. Navigation, content, and split-list scrollbars use the external `scrollbar` widget.
 
 # States

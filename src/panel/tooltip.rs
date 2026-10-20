@@ -17,6 +17,9 @@ impl Render for SettingsCommandTooltip {
         };
         div()
             .id("settings-disabled-command-tooltip")
+            .when_some(panel.font_family.clone(), |element, family| {
+                element.font_family(family)
+            })
             .max_w(px(360.0))
             .px_2()
             .py_1()

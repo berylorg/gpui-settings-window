@@ -49,7 +49,6 @@ use split::SplitPager;
 const PANEL_KEY_CONTEXT: &str = "GpuiSettingsWindowPanel";
 const SPLIT_KEY_CONTEXT: &str = "GpuiSettingsWindowPageSplit";
 const NAVIGATION_WIDTH: f32 = 196.0;
-const DEFAULT_FONT_SIZE: f32 = 14.0;
 const PAGE_LOCAL_SPLIT_ITEM_HEIGHT: f32 = 88.0;
 const PAGE_LOCAL_SPLIT_ITEM_GAP: f32 = 4.0;
 const PAGE_LOCAL_SPLIT_OVERSCAN_ROWS: usize = 3;
@@ -149,6 +148,7 @@ pub struct SettingsPanel {
     scrollbars_mounted: bool,
     split_scrollbar_consumer: Option<SettingsPageId>,
     font_size: f32,
+    font_family: Option<SharedString>,
     visual_theme: SettingsWindowTheme,
     page_body_renderer: Option<SettingsPageBodyRenderer>,
     saved_color_swatches: Vec<SettingsSavedColorSwatch>,
@@ -294,7 +294,10 @@ impl SettingsPanel {
             split_scrollbar_generation: 1,
             scrollbars_mounted: true,
             split_scrollbar_consumer: None,
-            font_size: DEFAULT_FONT_SIZE,
+            font_size: options.base_font_size(),
+            font_family: options
+                .base_font_family()
+                .map(|family| SharedString::from(family.to_owned())),
             visual_theme: options.visual_theme().clone(),
             page_body_renderer: options.page_body_renderer().cloned(),
             saved_color_swatches: options.saved_color_swatches().to_vec(),
@@ -473,6 +476,12 @@ impl SettingsPanel {
         let next_page_body_renderer = options.page_body_renderer().cloned();
         let next_swatches = options.saved_color_swatches().to_vec();
         let next_text_input_undo_byte_limit = options.text_input_undo_byte_limit();
+        let next_font_size = options.base_font_size();
+        let next_font_family = options
+            .base_font_family()
+            .map(|family| SharedString::from(family.to_owned()));
+        let typography_changed =
+            self.font_size != next_font_size || self.font_family != next_font_family;
 
         let theme_changed = self.visual_theme != next_theme;
         let page_body_renderer_changed = self.page_body_renderer != next_page_body_renderer;
@@ -480,6 +489,11 @@ impl SettingsPanel {
         let text_input_undo_byte_limit_changed =
             self.text_input_undo_byte_limit != next_text_input_undo_byte_limit;
 
+        if typography_changed {
+            self.font_size = next_font_size;
+            self.font_family = next_font_family;
+            self.sync_input_typography(cx);
+        }
         if theme_changed {
             self.visual_theme = next_theme;
             self.sync_input_visual_themes(cx);
@@ -495,7 +509,8 @@ impl SettingsPanel {
             self.text_input_undo_byte_limit = next_text_input_undo_byte_limit;
             self.sync_input_retention_options(window, cx);
         }
-        if theme_changed
+        if typography_changed
+            || theme_changed
             || page_body_renderer_changed
             || swatches_changed
             || text_input_undo_byte_limit_changed
@@ -933,6 +948,16 @@ impl SettingsPanel {
         self.subscribe_to_field(&input, window, cx);
 
         input
+    }
+
+    fn sync_input_typography(&self, cx: &mut Context<Self>) {
+        for input in self.fields.values().chain(self.color_picker_input.iter()) {
+            input.update(cx, |input, cx| input.sync_font_size(self.font_size, cx));
+        }
+        for slot in &self.color_picker_channel_inputs {
+            slot.input
+                .update(cx, |input, cx| input.sync_font_size(self.font_size, cx));
+        }
     }
 
     fn sync_input_visual_themes(&self, cx: &mut Context<Self>) {

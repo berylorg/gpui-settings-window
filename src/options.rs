@@ -13,6 +13,8 @@ pub const MAX_SAVED_COLOR_SWATCHES: usize = 30;
 /// Invalid settings-window options.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsWindowOptionsError {
+    InvalidBaseFontSize,
+    EmptyBaseFontFamily,
     /// The saved-color grid would exceed its fixed render capacity.
     TooManySavedColorSwatches {
         at_least_swatch_count: usize,
@@ -99,6 +101,8 @@ impl PartialEq for SettingsPageBodyRenderer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettingsWindowOptions {
     title: String,
+    base_font_size: f32,
+    base_font_family: Option<String>,
     width: f32,
     height: f32,
     min_width: f32,
@@ -110,10 +114,42 @@ pub struct SettingsWindowOptions {
 }
 
 impl SettingsWindowOptions {
+    pub fn with_base_font_size(mut self, size: f32) -> Result<Self, SettingsWindowOptionsError> {
+        if !size.is_finite() || size <= 0.0 {
+            return Err(SettingsWindowOptionsError::InvalidBaseFontSize);
+        }
+        self.base_font_size = size;
+        Ok(self)
+    }
+
+    pub fn with_base_font_family(
+        mut self,
+        family: Option<String>,
+    ) -> Result<Self, SettingsWindowOptionsError> {
+        if family
+            .as_ref()
+            .is_some_and(|family| family.trim().is_empty())
+        {
+            return Err(SettingsWindowOptionsError::EmptyBaseFontFamily);
+        }
+        self.base_font_family = family;
+        Ok(self)
+    }
+
+    pub fn base_font_size(&self) -> f32 {
+        self.base_font_size
+    }
+
+    pub fn base_font_family(&self) -> Option<&str> {
+        self.base_font_family.as_deref()
+    }
+
     /// Creates settings-window options with a custom title.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
+            base_font_size: 14.0,
+            base_font_family: None,
             width: DEFAULT_WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
             min_width: DEFAULT_WINDOW_WIDTH,
